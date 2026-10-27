@@ -1,10 +1,10 @@
 //! The control panel: a native floating window with ep's controls.
 //!
-//! It mirrors ep's "electro-paint" and "colors" panels (libpanel windows on
-//! IRIX) control for control: the same actuators, ranges and behaviour,
-//! drawn with standard AppKit controls. Every control drives the simulation
-//! through the same actuator inputs a libpanel event would, and the panel
-//! follows the simulation as the script animates it.
+//! It offers everything on ep's "electro-paint" and "colors" panels
+//! (libpanel windows on IRIX): the same actuators, ranges and behaviour,
+//! laid out as a macOS settings window of titled sections. Every control
+//! drives the simulation through the same actuator inputs a libpanel event
+//! would, and the panel follows the simulation as the script animates it.
 //!
 //! An ep slider is seven actuators: the value, the window the random walk
 //! roams (low and high bounds), a self-oscillation rate, a bounce/wrap
@@ -15,26 +15,75 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use ep_core::colour::hls_to_rgb;
-use ep_core::{Actuator, Kind, Panel, Sim, ids};
+use ep_core::{Sim, ids};
 use ep_metal::show::Show;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSApplication, NSBackingStoreType, NSBox, NSBoxType, NSButton, NSButtonType, NSColor,
-    NSControl, NSControlSize, NSControlStateValueOff, NSControlStateValueOn, NSFont, NSGridCell,
-    NSGridView, NSLayoutConstraintOrientation, NSPanel, NSSegmentedControl, NSSlider, NSSliderType,
-    NSStackView, NSTabView, NSTabViewItem, NSTextField, NSUserInterfaceLayoutOrientation, NSView,
-    NSWindowDelegate, NSWindowStyleMask,
+    NSAppearance, NSAppearanceCustomization, NSAppearanceNameDarkAqua, NSApplication,
+    NSBackingStoreType, NSBox, NSBoxType, NSButton, NSColor, NSControl, NSControlSize,
+    NSControlStateValueOff, NSControlStateValueOn, NSFont, NSGridCell, NSGridCellPlacement,
+    NSGridRowAlignment, NSGridView, NSImage, NSLayoutAttribute, NSLayoutConstraintOrientation,
+    NSPanel, NSSegmentedControl, NSSlider, NSStackView, NSStackViewGravity, NSTextAlignment,
+    NSTextField, NSTitlePosition, NSUserInterfaceLayoutOrientation, NSView, NSWindowDelegate,
+    NSWindowOrderingMode, NSWindowStyleMask,
 };
 use objc2_foundation::{
-    NSArray, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer,
+    NSArray, NSEdgeInsets, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer,
 };
 
 /// After the user moves a control, the panel leaves it alone this long
 /// before following the simulation again, so a drag isn't fought.
 const EDIT_GRACE: Duration = Duration::from_millis(400);
 const REFRESH_HZ: f64 = 20.0;
+/// Space around the window's content and between its parts.
+const MARGIN: f64 = 20.0;
+
+/// The ep sliders on the shape page, with full names for ep's four-letter
+/// labels.
+const SLIDERS: [(u16, &str); 12] = [
+    (ids::ZOOM, "Zoom"),
+    (ids::TWIST, "Twist"),
+    (ids::SPEED, "Speed"),
+    (ids::N, "Length"),
+    (ids::AMBIENT, "Ambient"),
+    (ids::SHINY, "Shininess"),
+    (ids::WHEEL, "Wheel"),
+    (ids::SPIN, "Spin"),
+    (ids::FLIP, "Flip"),
+    (ids::ARM, "Arm"),
+    (ids::WRIST, "Wrist"),
+    (ids::SIZE, "Size"),
+];
+const TILES: [(u16, &str); 5] = [
+    (ids::OUTLINE, "Outline"),
+    (ids::FATLINE, "Fat lines"),
+    (ids::FILL, "Fill"),
+    (ids::TRIANGLES, "Triangles"),
+    (ids::RIBBON, "Ribbons"),
+];
+const EFFECTS: [(u16, &str); 6] = [
+    (ids::SMEAR, "Smear"),
+    (ids::SMOOTH, "Smooth"),
+    // ep creates this toggle but leaves it off its RGB panel (and so without
+    // a key); scripts can still reach it, and so can this panel.
+    (ids::FADE, "Fade"),
+    (ids::BACKGROUND, "Background"),
+    (ids::ZBUF, "Z-buffer"),
+    (ids::LIGHT, "Lighting"),
+];
+const PLAYBACK: [(u16, &str); 3] = [
+    (ids::STOP, "Stop"),
+    (ids::FULLSCREEN, "Full screen"),
+    (ids::AUTO, "Random drift"),
+];
+/// ep's three colour-panel dials (outa, baka, outr).
+const BACKDROP: [(u16, &str); 3] = [
+    (ids::ALPHA_OUT, "Outline opacity"),
+    (ids::ALPHA_BACK, "Background opacity"),
+    (ids::HUE_BACK_RATE, "Background hue rate"),
+];
 
 /// How a control talks to the simulation.
 #[derive(Clone, Copy)]
@@ -53,15 +102,19 @@ enum Bind {
     PuckCentre,
     /// Hue/lightness switch for the colour channels.
     ChanMode,
+    /// Which page of the panel is showing (the panel's own state).
+    Page,
 }
 
 struct Control {
     view: Retained<NSView>,
     bind: Bind,
     edited: Cell<Option<Instant>>,
+    /// A symbol button standing for a toggle: tinted while it is on.
+    tinted: bool,
 }
 
-/// The colour tab's grid and its rows for the hue sliders and for the
+/// The channel grid and its rows for the hue sliders and for the
 /// lightness sliders (shown one set at a time, like ep's two overlapping
 /// slider sets).
 struct ChanRows {
@@ -86,6 +139,12 @@ pub(crate) struct PanelIvars {
     controls: RefCell<Vec<Control>>,
     puck: Cell<[f32; 2]>,
     window: RefCell<Option<Retained<NSPanel>>>,
+    /// The window's content: the page picker, the slot holding the current
+    /// page, and the buttons.
+    root: RefCell<Option<Retained<NSView>>>,
+    slot: RefCell<Option<Retained<NSView>>>,
+    pages: RefCell<Vec<Retained<NSView>>>,
+    picker: RefCell<Option<Retained<NSSegmentedControl>>>,
     /// `--controls`: keep the panel up regardless of ep's full-screen state.
     pinned: bool,
     chan_rows: RefCell<Option<ChanRows>>,
@@ -142,6 +201,10 @@ impl PanelController {
             controls: RefCell::new(Vec::new()),
             puck: Cell::new([0.0; 2]),
             window: RefCell::new(None),
+            root: RefCell::new(None),
+            slot: RefCell::new(None),
+            pages: RefCell::new(Vec::new()),
+            picker: RefCell::new(None),
             pinned,
             chan_rows: RefCell::new(None),
             timer: RefCell::new(None),
@@ -149,20 +212,54 @@ impl PanelController {
         // SAFETY: NSObject's initialiser, once, on a fresh allocation.
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
 
-        let tabs = NSTabView::new(mtm);
-        let main = this.main_tab(mtm);
-        let colours = this.colours_tab(mtm);
-        for (label, view) in [("electro-paint", main), ("colors", colours)] {
-            let item = NSTabViewItem::new();
-            item.setLabel(&NSString::from_str(label));
-            item.setView(Some(&view));
-            tabs.addTabViewItem(&item);
+        let pages = vec![this.shape_page(mtm), this.colour_page(mtm)];
+        let picker = this.page_picker(mtm, &["Shape", "Colour"]);
+        let bar = this.button_bar(mtm);
+        // Plain constraints rather than a stack view, so the window fits the
+        // page exactly: a stack view doesn't insist on containing its views
+        // across its width.
+        let root = NSView::new(mtm);
+        let slot = NSView::new(mtm);
+        let picker_view = into_view(picker.clone());
+        for v in [&picker_view, &slot, &bar] {
+            v.setTranslatesAutoresizingMaskIntoConstraints(false);
+            root.addSubview(v);
         }
-        let size = tabs.fittingSize();
-        let size = NSSize::new(size.width.max(720.0), size.height.max(560.0));
+        for c in [
+            picker_view
+                .topAnchor()
+                .constraintEqualToAnchor_constant(&root.topAnchor(), 14.0),
+            slot.topAnchor()
+                .constraintEqualToAnchor_constant(&picker_view.bottomAnchor(), MARGIN),
+            bar.topAnchor()
+                .constraintEqualToAnchor_constant(&slot.bottomAnchor(), MARGIN),
+            root.bottomAnchor()
+                .constraintEqualToAnchor_constant(&bar.bottomAnchor(), MARGIN),
+        ] {
+            c.setActive(true);
+        }
+        for c in [
+            picker_view
+                .centerXAnchor()
+                .constraintEqualToAnchor(&root.centerXAnchor()),
+            slot.leadingAnchor()
+                .constraintEqualToAnchor_constant(&root.leadingAnchor(), MARGIN),
+            root.trailingAnchor()
+                .constraintEqualToAnchor_constant(&slot.trailingAnchor(), MARGIN),
+            bar.leadingAnchor()
+                .constraintEqualToAnchor(&slot.leadingAnchor()),
+            bar.trailingAnchor()
+                .constraintEqualToAnchor(&slot.trailingAnchor()),
+        ] {
+            c.setActive(true);
+        }
+        for page in &pages {
+            page.setTranslatesAutoresizingMaskIntoConstraints(false);
+        }
+
         let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
             NSPanel::alloc(mtm),
-            NSRect::new(NSPoint::new(0.0, 0.0), size),
+            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(600.0, 400.0)),
             NSWindowStyleMask::Titled
                 | NSWindowStyleMask::Closable
                 | NSWindowStyleMask::UtilityWindow,
@@ -171,14 +268,19 @@ impl PanelController {
         );
         // SAFETY: `Retained` owns the panel, so AppKit must not release it too.
         unsafe { panel.setReleasedWhenClosed(false) };
-        panel.setTitle(&ns("electropaint controls"));
-        panel.setContentView(Some(&tabs));
+        panel.setTitle(&ns("Controls"));
+        panel.setContentView(Some(&root));
         panel.setFloatingPanel(true);
         panel.setHidesOnDeactivate(false);
         panel.setLevel(level + 1);
         panel.setDelegate(Some(ProtocolObject::from_ref(&*this)));
+        *this.ivars().window.borrow_mut() = Some(panel.clone());
+        *this.ivars().root.borrow_mut() = Some(root);
+        *this.ivars().slot.borrow_mut() = Some(slot);
+        *this.ivars().pages.borrow_mut() = pages;
+        *this.ivars().picker.borrow_mut() = Some(picker);
+        this.show_page(0, false);
         panel.center();
-        *this.ivars().window.borrow_mut() = Some(panel);
 
         // SAFETY: `refresh:` is defined on this class and takes the timer.
         let timer = unsafe {
@@ -195,137 +297,227 @@ impl PanelController {
         this
     }
 
-    /// Draws each tab of the panel into `<path>-<tab>.png` (for checking
-    /// the layout without a screen).
+    /// Draws the panel, title bar included, showing each page into
+    /// `<path>-<page>.png`, and in dark mode into `<path>-<page>-dark.png`
+    /// (for checking the layout without a screen).
     pub(crate) fn snapshot(&self, path: &str) -> Result<(), String> {
-        let window = self.ivars().window.borrow();
-        let window = window.as_ref().ok_or("no panel")?;
-        let tabs = window.contentView().ok_or("no content")?;
-        let tabs = tabs.downcast_ref::<NSTabView>().ok_or("not a tab view")?;
+        let window = self.ivars().window.borrow().clone().ok_or("no panel")?;
+        let root = self.ivars().root.borrow().clone().ok_or("no panel")?;
+        // The window's frame view draws its background and title bar too.
+        // SAFETY: the window (which `window` retains) owns its frame view
+        // for as long as it has this content view.
+        let frame = unsafe { root.superview() }.ok_or("panel not in a window")?;
+        // SAFETY: a constant AppKit defines.
+        let dark = NSAppearance::appearanceNamed(unsafe { NSAppearanceNameDarkAqua });
         self.refresh_values();
-        for i in 0..tabs.numberOfTabViewItems() {
-            tabs.selectTabViewItemAtIndex(i);
-            tabs.layoutSubtreeIfNeeded();
-            let rect = tabs.bounds();
-            let rep = tabs
-                .bitmapImageRepForCachingDisplayInRect(rect)
-                .ok_or("no bitmap")?;
-            tabs.cacheDisplayInRect_toBitmapImageRep(rect, &rep);
-            // SAFETY: an empty properties dictionary is valid for every file type.
-            let png = unsafe {
-                rep.representationUsingType_properties(
-                    objc2_app_kit::NSBitmapImageFileType::PNG,
-                    &objc2_foundation::NSDictionary::new(),
-                )
+        for page in 0..self.ivars().pages.borrow().len() {
+            self.show_page(page, false);
+            for (suffix, appearance) in [("", None), ("-dark", dark.as_deref())] {
+                window.setAppearance(appearance);
+                frame.layoutSubtreeIfNeeded();
+                let rect = frame.bounds();
+                let rep = frame
+                    .bitmapImageRepForCachingDisplayInRect(rect)
+                    .ok_or("no bitmap")?;
+                frame.cacheDisplayInRect_toBitmapImageRep(rect, &rep);
+                // SAFETY: an empty properties dictionary is valid for every file type.
+                let png = unsafe {
+                    rep.representationUsingType_properties(
+                        objc2_app_kit::NSBitmapImageFileType::PNG,
+                        &objc2_foundation::NSDictionary::new(),
+                    )
+                }
+                .ok_or("no png")?;
+                let file = format!("{path}-{page}{suffix}.png");
+                std::fs::write(&file, png.to_vec()).map_err(|e| e.to_string())?;
             }
-            .ok_or("no png")?;
-            let file = format!("{path}-{i}.png");
-            std::fs::write(&file, png.to_vec()).map_err(|e| e.to_string())?;
         }
+        window.setAppearance(None);
+        self.show_page(0, false);
         Ok(())
+    }
+
+    /// Shows page `index` and fits the window to it, keeping its top edge
+    /// where it is.
+    fn show_page(&self, index: usize, animate: bool) {
+        if let (Some(slot), Some(page)) = (
+            self.ivars().slot.borrow().as_ref(),
+            self.ivars().pages.borrow().get(index),
+        ) {
+            for old in slot.subviews().iter() {
+                old.removeFromSuperview();
+            }
+            slot.addSubview(page);
+            for (a, b) in [
+                (page.leadingAnchor(), slot.leadingAnchor()),
+                (page.trailingAnchor(), slot.trailingAnchor()),
+            ] {
+                a.constraintEqualToAnchor(&b).setActive(true);
+            }
+            for (a, b) in [
+                (page.topAnchor(), slot.topAnchor()),
+                (page.bottomAnchor(), slot.bottomAnchor()),
+            ] {
+                a.constraintEqualToAnchor(&b).setActive(true);
+            }
+        }
+        if let Some(picker) = self.ivars().picker.borrow().as_ref() {
+            picker.setSelectedSegment(index as isize);
+        }
+        let (Some(window), Some(root)) = (
+            self.ivars().window.borrow().clone(),
+            self.ivars().root.borrow().clone(),
+        ) else {
+            return;
+        };
+        let size = root.fittingSize();
+        let old = window.frame();
+        let mut frame = window.frameRectForContentRect(NSRect::new(old.origin, size));
+        frame.origin.y = old.origin.y + old.size.height - frame.size.height;
+        window.setFrame_display_animate(frame, true, animate);
     }
 
     // ------------------------------------------------------------- layout
 
-    fn main_tab(&self, mtm: MainThreadMarker) -> Retained<NSView> {
-        let toggles = [
-            ids::OUTLINE,
-            ids::FATLINE,
-            ids::FILL,
-            ids::RIBBON,
-            ids::SMOOTH,
-            ids::SMEAR,
-            ids::FADE,
-            ids::BACKGROUND,
-            ids::ZBUF,
-            ids::LIGHT,
-            ids::STOP,
-            ids::FULLSCREEN,
-            ids::AUTO,
-            ids::TRIANGLES,
-        ];
-        let mut toggle_rows: Vec<Vec<Retained<NSView>>> = Vec::new();
-        for chunk in toggles.chunks(4) {
-            let mut row: Vec<Retained<NSView>> = chunk
-                .iter()
-                .map(|&id| self.checkbox(mtm, self.toggle_label(id), Bind::Press(id)))
-                .collect();
-            while row.len() < 4 {
-                row.push(empty(mtm));
-            }
-            toggle_rows.push(row);
-        }
-        let buttons = hstack(
+    fn shape_page(&self, mtm: MainThreadMarker) -> Retained<NSView> {
+        let position = hstack(
             mtm,
             &[
-                self.button(mtm, "reset", Bind::Press(ids::RESET)),
-                self.button(mtm, "exit", Bind::Press(ids::EXIT)),
+                name(mtm, "X"),
+                self.slider(mtm, -0.5, 0.5, Bind::Puck(0), 160.0),
+                name(mtm, "Y"),
+                self.slider(mtm, -0.5, 0.5, Bind::Puck(1), 160.0),
+                self.button(mtm, "Centre", Bind::PuckCentre),
             ],
         );
-        let toggles: Retained<NSView> = Retained::into_super(narrow(grid(mtm, toggle_rows)));
-
-        let mut rows = vec![slider_header(mtm)];
-        for (id, label) in
-            self.labelled_actuators(|a| a.kind == Kind::Slider && a.panel == Some(Panel::Main))
-        {
-            rows.push(self.ep_slider_row(mtm, label, id, 200.0));
-        }
-        let sliders: Retained<NSView> = Retained::into_super(narrow(grid(mtm, rows)));
-
-        let puck = hstack(
+        page(
             mtm,
             &[
-                label(mtm, "position"),
-                label(mtm, "x"),
-                self.slider(mtm, -0.5, 0.5, Bind::Puck(0), 140.0),
-                label(mtm, "y"),
-                self.slider(mtm, -0.5, 0.5, Bind::Puck(1), 140.0),
-                self.button(mtm, "centre", Bind::PuckCentre),
+                section(mtm, "Tiles", None, self.toggle_grid(mtm, &TILES)),
+                section(mtm, "Effects", None, self.toggle_grid(mtm, &EFFECTS)),
+                section(mtm, "Strand", None, self.strand_grid(mtm)),
+                section(mtm, "Position", None, position),
+                section(mtm, "Playback", None, self.toggle_grid(mtm, &PLAYBACK)),
             ],
-        );
-        vstack(mtm, &[toggles, buttons, sliders, puck])
+        )
     }
 
-    fn colours_tab(&self, mtm: MainThreadMarker) -> Retained<NSView> {
-        let mut dials: Vec<Retained<NSView>> = Vec::new();
-        for (id, text) in self.labelled_actuators(|a| a.kind == Kind::Dial) {
-            let (min, max) = self.range(id);
-            dials.push(label(mtm, text));
-            dials.push(self.dial(mtm, min, max, Bind::Value(id)));
-            dials.push(self.small_button(mtm, "R", Bind::Press(id + 1)));
-        }
-        let dials = hstack(mtm, &dials);
+    fn colour_page(&self, mtm: MainThreadMarker) -> Retained<NSView> {
+        let backdrop = BACKDROP
+            .iter()
+            .map(|&(id, text)| {
+                let (min, max) = self.range(id);
+                vec![
+                    name(mtm, text),
+                    self.slider(mtm, min, max, Bind::Value(id), 200.0),
+                    self.symbol_button(mtm, "arrow.counterclockwise", "Reset", Bind::Press(id + 1)),
+                ]
+            })
+            .collect();
+        let backdrop = into_view(narrow(grid(mtm, backdrop)));
 
         let mode = NSSegmentedControl::new(mtm);
         mode.setSegmentCount(2);
-        mode.setLabel_forSegment(&ns("hue"), 0);
-        mode.setLabel_forSegment(&ns("lightness"), 1);
+        mode.setLabel_forSegment(&ns("Hue"), 0);
+        mode.setLabel_forSegment(&ns("Lightness"), 1);
+        mode.setControlSize(NSControlSize::Small);
         let mode: Retained<NSView> = Retained::into_super(Retained::into_super(mode));
         self.register(&mode, Bind::ChanMode);
-        let mode = hstack(mtm, &[label(mtm, "channel sliders"), mode]);
 
-        // One column per colour channel.
+        let (min, max) = self.range(ids::CHAN_RATE);
+        let cycling = hstack(
+            mtm,
+            &[
+                name(mtm, "Channel rate"),
+                self.slider(mtm, min, max, Bind::Value(ids::CHAN_RATE), 300.0),
+            ],
+        );
+        page(
+            mtm,
+            &[
+                section(mtm, "Outline and background", None, backdrop),
+                section(mtm, "Channels", Some(mode), self.channel_grid(mtm)),
+                section(mtm, "Cycling", None, cycling),
+            ],
+        )
+    }
+
+    /// Checkboxes three to a row, each followed by its key in grey.
+    fn toggle_grid(&self, mtm: MainThreadMarker, toggles: &[(u16, &str)]) -> Retained<NSView> {
+        let rows = toggles
+            .chunks(3)
+            .map(|chunk| {
+                let mut row = Vec::new();
+                for &(id, text) in chunk {
+                    row.push(self.checkbox(mtm, text, Bind::Press(id)));
+                    row.push(caption(
+                        mtm,
+                        &self.key(id).map(String::from).unwrap_or_default(),
+                    ));
+                }
+                while row.len() < 6 {
+                    row.push(empty(mtm));
+                }
+                row
+            })
+            .collect();
+        let g = narrow(grid(mtm, rows));
+        g.setColumnSpacing(6.0);
+        // Room between one toggle's key and the next toggle.
+        for column in [1, 3] {
+            g.columnAtIndex(column).setTrailingPadding(18.0);
+        }
+        into_view(g)
+    }
+
+    /// The ep sliders: value with its reading, the drift window, the rate,
+    /// bounce and reset.
+    fn strand_grid(&self, mtm: MainThreadMarker) -> Retained<NSView> {
+        let mut rows = vec![
+            ["", "Value", "", "Low", "High", "Rate", "", ""]
+                .map(|s| caption(mtm, s))
+                .to_vec(),
+        ];
+        for (id, text) in SLIDERS {
+            let (min, max) = self.range(id);
+            let (rmin, rmax) = self.range(id + ids::SLIDER_RATE);
+            rows.push(vec![
+                name(mtm, text),
+                self.slider(mtm, min, max, Bind::Value(id), 180.0),
+                self.readout(mtm, Bind::Readout(id)),
+                self.slider(mtm, min, max, Bind::Value(id + ids::SLIDER_LOWER), 70.0),
+                self.slider(mtm, min, max, Bind::Value(id + ids::SLIDER_UPPER), 70.0),
+                self.slider(mtm, rmin, rmax, Bind::Value(id + ids::SLIDER_RATE), 70.0),
+                self.bounce_button(mtm, id),
+                self.reset_button(mtm, id),
+            ]);
+        }
+        into_view(narrow(grid(mtm, rows)))
+    }
+
+    /// One column per colour channel.
+    fn channel_grid(&self, mtm: MainThreadMarker) -> Retained<NSView> {
         let channels = 0..5;
         let header = std::iter::once(empty(mtm))
             .chain(
                 channels
                     .clone()
-                    .map(|i| label(mtm, &format!("channel {}", i + 1))),
+                    .map(|i| caption(mtm, &format!("Channel {}", i + 1))),
             )
             .collect();
-        let row = |name: &str, make: &dyn Fn(usize) -> Retained<NSView>| -> Vec<Retained<NSView>> {
-            std::iter::once(label(mtm, name))
+        let row = |text: &str, make: &dyn Fn(usize) -> Retained<NSView>| -> Vec<Retained<NSView>> {
+            std::iter::once(name(mtm, text))
                 .chain(channels.clone().map(make))
                 .collect()
         };
         let mut rows: Vec<Vec<Retained<NSView>>> = vec![
             header,
-            row("active", &|i| {
-                self.button(mtm, "on", Bind::Press(ids::active_button(i)))
+            row("In use", &|i| {
+                self.radio(mtm, Bind::Press(ids::active_button(i)))
             }),
-            row("colour", &|i| self.swatch(mtm, i)),
-            row("alpha", &|i| {
-                self.dial(mtm, 0.0, 1.0, Bind::Value(ids::alpha_dial(i)))
+            row("Colour", &|i| self.swatch(mtm, i)),
+            row("Opacity", &|i| {
+                self.slider(mtm, 0.0, 1.0, Bind::Value(ids::alpha_dial(i)), 90.0)
             }),
         ];
         let mut hue_rows = Vec::new();
@@ -334,103 +526,79 @@ impl PanelController {
             (&mut hue_rows, ids::hue_slider as fn(usize) -> u16),
             (&mut light_rows, ids::light_slider),
         ] {
-            for (name, offset) in [
-                ("value", None),
-                ("low", Some(ids::SLIDER_LOWER)),
-                ("high", Some(ids::SLIDER_UPPER)),
-                ("rate", Some(ids::SLIDER_RATE)),
+            for (text, offset) in [
+                ("Value", None),
+                ("Low", Some(ids::SLIDER_LOWER)),
+                ("High", Some(ids::SLIDER_UPPER)),
+                ("Rate", Some(ids::SLIDER_RATE)),
             ] {
                 set.push(rows.len() as isize);
-                rows.push(row(name, &|i| {
+                rows.push(row(text, &|i| {
                     let id = base(i) + offset.unwrap_or(0);
                     let (min, max) = self.range(id);
-                    self.slider(mtm, min, max, Bind::Value(id), 100.0)
+                    self.slider(mtm, min, max, Bind::Value(id), 90.0)
                 }));
             }
             set.push(rows.len() as isize);
             rows.push(row("", &|i| {
-                hstack(
+                into_view(hstack(
                     mtm,
                     &[
-                        self.checkbox(mtm, "bounce", Bind::Press(base(i) + ids::SLIDER_BOUNCE)),
-                        self.small_button(mtm, "R", Bind::Press(base(i) + ids::SLIDER_RESET)),
+                        self.bounce_button(mtm, base(i)),
+                        self.reset_button(mtm, base(i)),
                     ],
-                )
+                ))
             }));
         }
-        rows.push(row("dwell", &|i| {
-            self.slider(mtm, 0.0, 1.0, Bind::Value(ids::dwell(i)), 100.0)
+        rows.push(row("Dwell", &|i| {
+            self.slider(mtm, 0.0, 1.0, Bind::Value(ids::dwell(i)), 90.0)
         }));
-        let grid_view = grid(mtm, rows);
+        let g = narrow(grid(mtm, rows));
+        g.setColumnSpacing(12.0);
         *self.ivars().chan_rows.borrow_mut() = Some(ChanRows {
-            grid: grid_view.clone(),
+            grid: g.clone(),
             hue: hue_rows,
             light: light_rows,
         });
-
-        let (min, max) = self.range(ids::CHAN_RATE);
-        let chanrate = hstack(
-            mtm,
-            &[
-                label(mtm, "channel rate"),
-                self.slider(mtm, min, max, Bind::Value(ids::CHAN_RATE), 300.0),
-            ],
-        );
-        let grid_view: Retained<NSView> = Retained::into_super(grid_view);
-        vstack(mtm, &[dials, mode, grid_view, chanrate])
+        into_view(g)
     }
 
-    /// One ep slider: value, bounds, rate, bounce, R.
-    fn ep_slider_row(
-        &self,
-        mtm: MainThreadMarker,
-        name: &str,
-        id: u16,
-        width: f64,
-    ) -> Vec<Retained<NSView>> {
-        let (min, max) = self.range(id);
-        let (rmin, rmax) = self.range(id + ids::SLIDER_RATE);
-        vec![
-            label(mtm, name),
-            self.slider(mtm, min, max, Bind::Value(id), width),
-            self.readout(mtm, Bind::Readout(id)),
-            self.slider(mtm, min, max, Bind::Value(id + ids::SLIDER_LOWER), 80.0),
-            self.slider(mtm, min, max, Bind::Value(id + ids::SLIDER_UPPER), 80.0),
-            self.slider(mtm, rmin, rmax, Bind::Value(id + ids::SLIDER_RATE), 80.0),
-            self.checkbox(mtm, "", Bind::Press(id + ids::SLIDER_BOUNCE)),
-            self.small_button(mtm, "R", Bind::Press(id + ids::SLIDER_RESET)),
-        ]
+    fn page_picker(&self, mtm: MainThreadMarker, labels: &[&str]) -> Retained<NSSegmentedControl> {
+        let picker = NSSegmentedControl::new(mtm);
+        picker.setContentHuggingPriority_forOrientation(
+            1000.0,
+            NSLayoutConstraintOrientation::Horizontal,
+        );
+        picker.setSegmentCount(labels.len() as isize);
+        for (i, text) in labels.iter().enumerate() {
+            picker.setLabel_forSegment(&ns(text), i as isize);
+        }
+        let view: Retained<NSView> = Retained::into_super(Retained::into_super(picker.clone()));
+        self.register(&view, Bind::Page);
+        picker
+    }
+
+    /// The buttons that act on the whole show, at the bottom right.
+    fn button_bar(&self, mtm: MainThreadMarker) -> Retained<NSView> {
+        let bar = stack(mtm, &[], NSUserInterfaceLayoutOrientation::Horizontal);
+        for (text, id) in [("Reset All", ids::RESET), ("Quit", ids::EXIT)] {
+            bar.addView_inGravity(
+                &self.button(mtm, text, Bind::Press(id)),
+                NSStackViewGravity::Trailing,
+            );
+        }
+        into_view(bar)
     }
 
     // ----------------------------------------------------------- controls
 
-    /// The labelled actuators `which` selects, in id order, with ep's labels.
-    fn labelled_actuators(&self, which: impl Fn(&Actuator) -> bool) -> Vec<(u16, &'static str)> {
+    /// The key equivalent ep gives actuator `id`, if any.
+    fn key(&self, id: u16) -> Option<char> {
         let show = self.ivars().show.borrow();
         show.sim()
-            .actuators()
-            .filter(|a| which(a))
-            .filter_map(|a| Some((a.id, a.label?)))
-            .collect()
-    }
-
-    /// A toggle's label: ep's own, except for the two toggles ep has no
-    /// label for on its main panel.
-    fn toggle_label(&self, id: u16) -> &'static str {
-        match id {
-            // ep creates this toggle but leaves it off its RGB panel (and so
-            // without a key); scripts can still reach it, and so can this panel.
-            ids::FADE => "fade",
-            // From ep's texture panel, which the port doesn't have.
-            ids::TRIANGLES => "triangles (T)",
-            _ => {
-                let show = self.ivars().show.borrow();
-                show.sim()
-                    .actuator(id)
-                    .and_then(|a| a.label)
-                    .unwrap_or_else(|| panic!("toggle {id} has no label"))
-            }
-        }
+            .actuator(id)
+            .and_then(|a| a.key)
+            .filter(|k| !k.is_control())
     }
 
     fn range(&self, id: u16) -> (f64, f64) {
@@ -444,6 +612,10 @@ impl PanelController {
     }
 
     fn register(&self, view: &Retained<NSView>, bind: Bind) {
+        self.register_control(view, bind, false);
+    }
+
+    fn register_control(&self, view: &Retained<NSView>, bind: Bind, tinted: bool) {
         let mut controls = self.ivars().controls.borrow_mut();
         if let Some(control) = view.downcast_ref::<NSControl>() {
             control.setTag(controls.len() as isize);
@@ -459,6 +631,7 @@ impl PanelController {
             view: view.clone(),
             bind,
             edited: Cell::new(None),
+            tinted,
         });
     }
 
@@ -483,17 +656,6 @@ impl PanelController {
         view
     }
 
-    fn dial(&self, mtm: MainThreadMarker, min: f64, max: f64, bind: Bind) -> Retained<NSView> {
-        let s = NSSlider::new(mtm);
-        s.setSliderType(NSSliderType::Circular);
-        s.setMinValue(min);
-        s.setMaxValue(max);
-        s.setContinuous(true);
-        let view: Retained<NSView> = Retained::into_super(Retained::into_super(s));
-        self.register(&view, bind);
-        view
-    }
-
     fn checkbox(&self, mtm: MainThreadMarker, title: &str, bind: Bind) -> Retained<NSView> {
         // SAFETY: no target or action; `register` sets them.
         let b = unsafe { NSButton::checkboxWithTitle_target_action(&ns(title), None, None, mtm) };
@@ -502,34 +664,63 @@ impl PanelController {
         view
     }
 
-    fn button(&self, mtm: MainThreadMarker, title: &str, bind: Bind) -> Retained<NSView> {
+    fn radio(&self, mtm: MainThreadMarker, bind: Bind) -> Retained<NSView> {
         // SAFETY: no target or action; `register` sets them.
-        let b = unsafe { NSButton::buttonWithTitle_target_action(&ns(title), None, None, mtm) };
-        if let Bind::Press(id) = bind {
-            // Momentary buttons that light up (the channel "active" buttons)
-            // show their state.
-            let lights = self
-                .ivars()
-                .show
-                .borrow()
-                .sim()
-                .actuator(id)
-                .is_some_and(|a| a.kind == Kind::Button);
-            if lights {
-                b.setButtonType(NSButtonType::PushOnPushOff);
-            }
-        }
+        let b = unsafe { NSButton::radioButtonWithTitle_target_action(&ns(""), None, None, mtm) };
         let view: Retained<NSView> = Retained::into_super(Retained::into_super(b));
         self.register(&view, bind);
         view
     }
 
-    fn small_button(&self, mtm: MainThreadMarker, title: &str, bind: Bind) -> Retained<NSView> {
-        let view = self.button(mtm, title, bind);
-        if let Some(b) = view.downcast_ref::<NSButton>() {
-            b.setControlSize(NSControlSize::Small);
-        }
+    fn button(&self, mtm: MainThreadMarker, title: &str, bind: Bind) -> Retained<NSView> {
+        // SAFETY: no target or action; `register` sets them.
+        let b = unsafe { NSButton::buttonWithTitle_target_action(&ns(title), None, None, mtm) };
+        let view: Retained<NSView> = Retained::into_super(Retained::into_super(b));
+        self.register(&view, bind);
         view
+    }
+
+    /// A borderless SF Symbols button, tinted with the accent colour while
+    /// its actuator is on (secondary grey otherwise).
+    fn symbol_button(
+        &self,
+        mtm: MainThreadMarker,
+        symbol: &str,
+        tip: &str,
+        bind: Bind,
+    ) -> Retained<NSView> {
+        let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(
+            &ns(symbol),
+            Some(&ns(tip)),
+        )
+        .unwrap_or_else(|| panic!("no SF Symbol {symbol}"));
+        // SAFETY: no target or action; `register` sets them.
+        let b = unsafe { NSButton::buttonWithImage_target_action(&image, None, None, mtm) };
+        b.setBordered(false);
+        b.setToolTip(Some(&ns(tip)));
+        let view: Retained<NSView> = Retained::into_super(Retained::into_super(b));
+        self.register_control(&view, bind, true);
+        view
+    }
+
+    /// The bounce toggle of the ep slider whose main actuator is `id`.
+    fn bounce_button(&self, mtm: MainThreadMarker, id: u16) -> Retained<NSView> {
+        self.symbol_button(
+            mtm,
+            "arrow.left.arrow.right",
+            "Bounce at the ends of the range (off: wrap round)",
+            Bind::Press(id + ids::SLIDER_BOUNCE),
+        )
+    }
+
+    /// The "R" of the ep slider whose main actuator is `id`.
+    fn reset_button(&self, mtm: MainThreadMarker, id: u16) -> Retained<NSView> {
+        self.symbol_button(
+            mtm,
+            "arrow.counterclockwise",
+            "Reset range, rate and value",
+            Bind::Press(id + ids::SLIDER_RESET),
+        )
     }
 
     fn readout(&self, mtm: MainThreadMarker, bind: Bind) -> Retained<NSView> {
@@ -537,8 +728,10 @@ impl PanelController {
         t.setFont(Some(&NSFont::monospacedDigitSystemFontOfSize_weight(
             11.0, 0.0,
         )));
+        t.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        t.setAlignment(NSTextAlignment::Right);
         t.widthAnchor()
-            .constraintEqualToConstant(64.0)
+            .constraintEqualToConstant(56.0)
             .setActive(true);
         let view: Retained<NSView> = Retained::into_super(Retained::into_super(t));
         self.register(&view, bind);
@@ -548,13 +741,14 @@ impl PanelController {
     fn swatch(&self, mtm: MainThreadMarker, channel: usize) -> Retained<NSView> {
         let b = NSBox::new(mtm);
         b.setBoxType(NSBoxType::Custom);
+        b.setTitlePosition(NSTitlePosition::NoTitle);
         b.setBorderWidth(0.0);
-        b.setTitle(&ns(""));
+        b.setCornerRadius(4.0);
         b.widthAnchor()
-            .constraintEqualToConstant(100.0)
+            .constraintEqualToConstant(90.0)
             .setActive(true);
         b.heightAnchor()
-            .constraintEqualToConstant(20.0)
+            .constraintEqualToConstant(16.0)
             .setActive(true);
         let view: Retained<NSView> = Retained::into_super(b);
         self.register(&view, Bind::Swatch(channel));
@@ -602,6 +796,11 @@ impl PanelController {
                     } else {
                         ids::HUE_PALETTE
                     });
+                }
+            }
+            Bind::Page => {
+                if let Some(s) = c.view.downcast_ref::<NSSegmentedControl>() {
+                    self.show_page(s.selectedSegment().max(0) as usize, true);
                 }
             }
             Bind::Readout(_) | Bind::Swatch(_) => {}
@@ -671,6 +870,14 @@ impl PanelController {
                     } else {
                         NSControlStateValueOff
                     });
+                    if c.tinted {
+                        let tint = if on {
+                            NSColor::controlAccentColor()
+                        } else {
+                            NSColor::secondaryLabelColor()
+                        };
+                        b.setContentTintColor(Some(&tint));
+                    }
                 }
             }
             Bind::Readout(id) => {
@@ -702,7 +909,7 @@ impl PanelController {
                     s.setSelectedSegment(lightness as isize);
                 }
             }
-            Bind::PuckCentre => {}
+            Bind::PuckCentre | Bind::Page => {}
         }
     }
 }
@@ -713,20 +920,35 @@ fn ns(s: &str) -> Retained<NSString> {
     NSString::from_str(s)
 }
 
-fn label(mtm: MainThreadMarker, text: &str) -> Retained<NSView> {
-    let t = NSTextField::labelWithString(&NSString::from_str(text), mtm);
-    Retained::into_super(Retained::into_super(t))
+/// Any view, as an `NSView`.
+fn into_view<T>(v: Retained<T>) -> Retained<NSView>
+where
+    T: objc2::Message + AsRef<NSView>,
+{
+    // SAFETY: `AsRef<NSView>` is implemented exactly for NSView's
+    // subclasses, so the object is an NSView.
+    unsafe { Retained::cast_unchecked(v) }
+}
+
+fn text(mtm: MainThreadMarker, s: &str) -> Retained<NSTextField> {
+    NSTextField::labelWithString(&ns(s), mtm)
+}
+
+/// A row or field name.
+fn name(mtm: MainThreadMarker, s: &str) -> Retained<NSView> {
+    into_view(text(mtm, s))
+}
+
+/// Small secondary text: column headings and key hints.
+fn caption(mtm: MainThreadMarker, s: &str) -> Retained<NSView> {
+    let t = text(mtm, s);
+    t.setFont(Some(&NSFont::systemFontOfSize(11.0)));
+    t.setTextColor(Some(&NSColor::secondaryLabelColor()));
+    into_view(t)
 }
 
 fn empty(mtm: MainThreadMarker) -> Retained<NSView> {
     NSGridCell::emptyContentView(mtm)
-}
-
-fn slider_header(mtm: MainThreadMarker) -> Vec<Retained<NSView>> {
-    ["", "value", "", "low", "high", "rate", "bounce", ""]
-        .iter()
-        .map(|s| label(mtm, s))
-        .collect()
 }
 
 fn grid(mtm: MainThreadMarker, rows: Vec<Vec<Retained<NSView>>>) -> Retained<NSGridView> {
@@ -735,47 +957,124 @@ fn grid(mtm: MainThreadMarker, rows: Vec<Vec<Retained<NSView>>>) -> Retained<NSG
         .map(|r| NSArray::from_retained_slice(&r))
         .collect();
     let g = NSGridView::gridViewWithViews(&NSArray::from_retained_slice(&rows), mtm);
-    g.setRowSpacing(4.0);
-    g.setColumnSpacing(8.0);
-    // Keep rows at their natural height when the tab is taller.
+    g.setRowSpacing(6.0);
+    g.setColumnSpacing(10.0);
+    // Labels level with the controls beside them.
+    g.setRowAlignment(NSGridRowAlignment::None);
+    g.setYPlacement(NSGridCellPlacement::Center);
+    // Keep rows at their natural height when the section is taller.
     g.setContentHuggingPriority_forOrientation(999.0, NSLayoutConstraintOrientation::Vertical);
     g
 }
 
-/// Keeps a grid's columns at their natural width in a wider tab. Otherwise
-/// the grid's default hugging ties with the stack view's pull towards its
-/// edges (both at low priority), and Auto Layout settles the tie
+/// Keeps a grid's columns at their natural width in a wider section.
+/// Otherwise the grid's default hugging ties with the stack view's pull
+/// towards its edges (both at low priority), and Auto Layout settles the tie
 /// differently from run to run, spreading the columns out.
 fn narrow(g: Retained<NSGridView>) -> Retained<NSGridView> {
     g.setContentHuggingPriority_forOrientation(999.0, NSLayoutConstraintOrientation::Horizontal);
     g
 }
 
-fn hstack(mtm: MainThreadMarker, views: &[Retained<NSView>]) -> Retained<NSView> {
-    stack(mtm, views, NSUserInterfaceLayoutOrientation::Horizontal)
-}
-
-fn vstack(mtm: MainThreadMarker, views: &[Retained<NSView>]) -> Retained<NSView> {
-    let v = stack(mtm, views, NSUserInterfaceLayoutOrientation::Vertical);
-    if let Some(s) = v.downcast_ref::<NSStackView>() {
-        s.setSpacing(14.0);
-        s.setEdgeInsets(objc2_foundation::NSEdgeInsets {
-            top: 12.0,
-            left: 12.0,
-            bottom: 12.0,
-            right: 12.0,
-        });
-        s.setAlignment(objc2_app_kit::NSLayoutAttribute::Leading);
-    }
-    v
-}
-
 fn stack(
     mtm: MainThreadMarker,
     views: &[Retained<NSView>],
     o: NSUserInterfaceLayoutOrientation,
-) -> Retained<NSView> {
+) -> Retained<NSStackView> {
     let s = NSStackView::stackViewWithViews(&NSArray::from_retained_slice(views), mtm);
     s.setOrientation(o);
-    Retained::into_super(s)
+    s
+}
+
+fn hstack(mtm: MainThreadMarker, views: &[Retained<NSView>]) -> Retained<NSView> {
+    let s = stack(mtm, views, NSUserInterfaceLayoutOrientation::Horizontal);
+    s.setSpacing(10.0);
+    into_view(s)
+}
+
+/// Makes `child` as wide as `parent` less `inset` on each side.
+fn fill_width(child: &NSView, parent: &NSView, inset: f64) {
+    child
+        .widthAnchor()
+        .constraintEqualToAnchor_constant(&parent.widthAnchor(), -2.0 * inset)
+        .setActive(true);
+}
+
+/// A page: its sections one under another, all the same width.
+fn page(mtm: MainThreadMarker, sections: &[Retained<NSView>]) -> Retained<NSView> {
+    let s = stack(mtm, sections, NSUserInterfaceLayoutOrientation::Vertical);
+    s.setAlignment(NSLayoutAttribute::Leading);
+    s.setSpacing(18.0);
+    for section in sections {
+        fill_width(section, &s, 0.0);
+    }
+    into_view(s)
+}
+
+/// A section in the System Settings style: a heading, with an optional
+/// control at its trailing end, over a rounded card holding `content`.
+fn section(
+    mtm: MainThreadMarker,
+    title: &str,
+    accessory: Option<Retained<NSView>>,
+    content: Retained<NSView>,
+) -> Retained<NSView> {
+    let label = text(mtm, title);
+    label.setFont(Some(&NSFont::systemFontOfSize_weight(13.0, 0.3)));
+    let heading = stack(
+        mtm,
+        &[into_view(label)],
+        NSUserInterfaceLayoutOrientation::Horizontal,
+    );
+    if let Some(accessory) = accessory {
+        heading.addView_inGravity(&accessory, NSStackViewGravity::Trailing);
+    }
+    let card = card(mtm, content);
+    let heading = into_view(heading);
+    let s = stack(
+        mtm,
+        &[heading.clone(), card.clone()],
+        NSUserInterfaceLayoutOrientation::Vertical,
+    );
+    s.setAlignment(NSLayoutAttribute::Leading);
+    s.setSpacing(6.0);
+    fill_width(&heading, &s, 0.0);
+    fill_width(&card, &s, 0.0);
+    into_view(s)
+}
+
+/// `content` on AppKit's group box background (which follows light and dark
+/// mode), at its natural width at the leading edge however wide the card is.
+fn card(mtm: MainThreadMarker, content: Retained<NSView>) -> Retained<NSView> {
+    content
+        .setContentHuggingPriority_forOrientation(999.0, NSLayoutConstraintOrientation::Horizontal);
+    let s = stack(
+        mtm,
+        &[content],
+        NSUserInterfaceLayoutOrientation::Horizontal,
+    );
+    s.setEdgeInsets(NSEdgeInsets {
+        top: 12.0,
+        left: 14.0,
+        bottom: 12.0,
+        right: 14.0,
+    });
+    let background = NSBox::new(mtm);
+    background.setBoxType(NSBoxType::Primary);
+    background.setTitlePosition(NSTitlePosition::NoTitle);
+    background.setTranslatesAutoresizingMaskIntoConstraints(false);
+    s.addSubview_positioned_relativeTo(&background, NSWindowOrderingMode::Below, None);
+    for (a, b) in [
+        (background.leadingAnchor(), s.leadingAnchor()),
+        (background.trailingAnchor(), s.trailingAnchor()),
+    ] {
+        a.constraintEqualToAnchor(&b).setActive(true);
+    }
+    for (a, b) in [
+        (background.topAnchor(), s.topAnchor()),
+        (background.bottomAnchor(), s.bottomAnchor()),
+    ] {
+        a.constraintEqualToAnchor(&b).setActive(true);
+    }
+    into_view(s)
 }
