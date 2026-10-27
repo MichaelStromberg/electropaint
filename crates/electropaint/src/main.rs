@@ -142,7 +142,7 @@ fn write_snapshot(
         retraces += frame.swap_count().max(1) as u64;
         frames.push(frame);
     }
-    let bgra = renderer.render_offscreen(snap.width, snap.height, &frames);
+    let bgra = renderer.render_offscreen(snap.width, snap.height, &frames)?;
     let rgb: Vec<u8> = bgra
         .as_chunks::<4>()
         .0

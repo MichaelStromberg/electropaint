@@ -1,7 +1,7 @@
 //! Renders small synthetic frames offscreen and checks pixels.
 
 use ep_core::frame::{DrawBuffer, DrawState, Frame, Op, Projection, Vertex};
-use ep_metal::Renderer;
+use ep_metal::{Renderer, RendererError};
 use objc2_metal::MTLCreateSystemDefaultDevice;
 
 const W: usize = 128;
@@ -40,7 +40,7 @@ fn projection() -> Op {
 }
 
 #[test]
-fn clear_triangle_and_swap() {
+fn clear_triangle_and_swap() -> Result<(), RendererError> {
     let mut r = renderer();
     let tri = Op::Triangles {
         state: DrawState::default(),
@@ -53,7 +53,7 @@ fn clear_triangle_and_swap() {
     let frame = Frame {
         ops: vec![projection(), Op::Clear(RED), tri, Op::Swap],
     };
-    let img = r.render_offscreen(W, H, &[frame]);
+    let img = r.render_offscreen(W, H, &[frame])?;
     assert_eq!(
         px(&img, 2, 2),
         [255, 0, 0, 255],
@@ -67,18 +67,16 @@ fn clear_triangle_and_swap() {
 
     // Nothing drawn into the new back buffer: swapping again shows its old
     // contents (the never-written buffer is black).
-    let img = r.render_offscreen(
-        W,
-        H,
-        &[Frame {
-            ops: vec![Op::Swap],
-        }],
-    );
+    let swap = Frame {
+        ops: vec![Op::Swap],
+    };
+    let img = r.render_offscreen(W, H, &[swap])?;
     assert_eq!(px(&img, 2, 2), [0, 0, 0, 255]);
+    Ok(())
 }
 
 #[test]
-fn blending_and_front_buffer() {
+fn blending_and_front_buffer() -> Result<(), RendererError> {
     let mut r = renderer();
     let half_green = [0.0, 1.0, 0.0, 0.5];
     let quad = |c| Op::Triangles {
@@ -104,16 +102,17 @@ fn blending_and_front_buffer() {
             ops: vec![Op::SetDrawBuffer(DrawBuffer::Front), quad(half_green)],
         },
     ];
-    let img = r.render_offscreen(W, H, &frames);
+    let img = r.render_offscreen(W, H, &frames)?;
     let [red, green, blue, _] = px(&img, W / 2, H / 2);
     assert!(
         (127..=128).contains(&red) && (127..=128).contains(&green) && blue == 0,
         "{red} {green}"
     );
+    Ok(())
 }
 
 #[test]
-fn stipple_fill_hits_one_pixel_per_4x4_block() {
+fn stipple_fill_hits_one_pixel_per_4x4_block() -> Result<(), RendererError> {
     let mut r = renderer();
     // Rows 0, 4, 8, 12 from the bottom, bit 15 (leftmost) of every nibble.
     let mut pattern = [0u16; 16];
@@ -133,7 +132,7 @@ fn stipple_fill_hits_one_pixel_per_4x4_block() {
             Op::Swap,
         ],
     };
-    let img = r.render_offscreen(w, h, &[frame]);
+    let img = r.render_offscreen(w, h, &[frame])?;
     let at = |x: usize, y_from_bottom: usize| {
         let i = ((h - 1 - y_from_bottom) * w + x) * 4;
         img[i]
@@ -147,10 +146,11 @@ fn stipple_fill_hits_one_pixel_per_4x4_block() {
         .filter(|&(x, y)| at(x, y) == 255)
         .count();
     assert_eq!(lit, w * h / 16);
+    Ok(())
 }
 
 #[test]
-fn wide_lines_cover_minor_axis() {
+fn wide_lines_cover_minor_axis() -> Result<(), RendererError> {
     let mut r = renderer();
     let (w, h) = (256, 1024); // pixel scale 1: widths are device pixels
     let line = Op::Lines {
@@ -171,7 +171,7 @@ fn wide_lines_cover_minor_axis() {
             Op::Swap,
         ],
     };
-    let img = r.render_offscreen(w, h, &[frame]);
+    let img = r.render_offscreen(w, h, &[frame])?;
     // Multisampling softens the edges, so measure total coverage in pixels.
     let coverage: f32 = (0..h)
         .map(|y| img[(y * w + w / 2) * 4 + 1] as f32 / 255.0)
@@ -180,4 +180,18 @@ fn wide_lines_cover_minor_axis() {
         (coverage - 3.0).abs() < 0.05,
         "a width-3 horizontal line covers 3 pixels, got {coverage}"
     );
+    Ok(())
+}
+
+#[test]
+fn sizes_metal_cannot_make_are_errors() -> Result<(), RendererError> {
+    let mut r = renderer();
+    for (w, h) in [(0, H), (W, 0), (16385, H)] {
+        assert!(
+            r.render_offscreen(w, h, &[]).is_err(),
+            "{w}x{h} should be refused"
+        );
+    }
+    assert_eq!(r.render_offscreen(16384, 8, &[])?.len(), 16384 * 8 * 4);
+    Ok(())
 }

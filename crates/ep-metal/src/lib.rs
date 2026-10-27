@@ -39,6 +39,9 @@ const ORIGINAL_HEIGHT: f32 = 1024.0;
 const SAMPLES: usize = 4;
 const COLOR_FORMAT: MTLPixelFormat = MTLPixelFormat::BGRA8Unorm;
 const DEPTH_FORMAT: MTLPixelFormat = MTLPixelFormat::Depth32Float;
+/// The widest and tallest texture every Mac GPU supports. Metal aborts the
+/// process when asked for a larger one, rather than failing the call.
+const MAX_SIDE: usize = 16384;
 
 type Device = ProtocolObject<dyn MTLDevice>;
 type Texture = ProtocolObject<dyn MTLTexture>;
@@ -95,6 +98,11 @@ pub enum RendererError {
     Create(&'static str),
     ShaderCompile(String),
     Pipeline(String),
+    /// An offscreen picture with a side of 0 or over `MAX_SIDE` pixels.
+    Size {
+        width: usize,
+        height: usize,
+    },
 }
 
 impl std::fmt::Display for RendererError {
@@ -104,6 +112,10 @@ impl std::fmt::Display for RendererError {
             RendererError::Create(what) => write!(f, "could not create Metal {what}"),
             RendererError::ShaderCompile(e) => write!(f, "shader compile failed: {e}"),
             RendererError::Pipeline(e) => write!(f, "pipeline: {e}"),
+            RendererError::Size { width, height } => write!(
+                f,
+                "a {width}x{height} picture: each side must be 1 to {MAX_SIDE} pixels"
+            ),
         }
     }
 }
@@ -202,20 +214,30 @@ impl Renderer {
 
     /// Executes frames into a `width` x `height` target without a window and
     /// returns the displayed (front) buffer as BGRA8 rows, top row first.
-    ///
-    /// # Panics
-    ///
-    /// If `width` or `height` is 0, or Metal can't allocate a target that
-    /// size.
-    pub fn render_offscreen(&mut self, width: usize, height: usize, frames: &[Frame]) -> Vec<u8> {
-        let cb = self.encode(width, height, frames).expect("encode");
+    pub fn render_offscreen(
+        &mut self,
+        width: usize,
+        height: usize,
+        frames: &[Frame],
+    ) -> Result<Vec<u8>, RendererError> {
+        if !(1..=MAX_SIDE).contains(&width) || !(1..=MAX_SIDE).contains(&height) {
+            return Err(RendererError::Size { width, height });
+        }
+        let cb = self
+            .encode(width, height, frames)
+            .ok_or(RendererError::Create("render targets"))?;
         let row = width * 4;
         let buf = self
             .device
             .newBufferWithLength_options(row * height, MTLResourceOptions::StorageModeShared)
-            .expect("readback buffer");
-        let blit = cb.blitCommandEncoder().expect("blit encoder");
-        let targets = self.targets.as_ref().expect("encode created the targets");
+            .ok_or(RendererError::Create("readback buffer"))?;
+        let blit = cb
+            .blitCommandEncoder()
+            .ok_or(RendererError::Create("blit encoder"))?;
+        let targets = self
+            .targets
+            .as_ref()
+            .ok_or(RendererError::Create("render targets"))?;
         let src = &targets.color[self.front].resolved;
         // SAFETY: `src` is a `width` x `height` BGRA8 texture (4 bytes per
         // pixel) and `buf` holds exactly `row * height` bytes; both outlive
@@ -239,7 +261,7 @@ impl Renderer {
         let ptr = buf.contents().as_ptr() as *const u8;
         // SAFETY: shared storage of `row * height` bytes, which the GPU
         // finished writing (`waitUntilCompleted`) and nothing else touches.
-        unsafe { std::slice::from_raw_parts(ptr, row * height) }.to_vec()
+        Ok(unsafe { std::slice::from_raw_parts(ptr, row * height) }.to_vec())
     }
 
     /// Encodes the frames' operations into a new command buffer, (re)creating
@@ -533,8 +555,11 @@ fn projection_matrix(p: &Projection, aspect: f32) -> [[f32; 4]; 4] {
 }
 
 impl Targets {
-    /// `None` if Metal can't allocate them.
+    /// `None` if Metal can't allocate them, or won't at that size.
     fn new(device: &Device, width: usize, height: usize) -> Option<Self> {
+        if width > MAX_SIDE || height > MAX_SIDE {
+            return None;
+        }
         let buffer = || {
             Some(ColorBuffer {
                 msaa: texture(device, COLOR_FORMAT, width, height, SAMPLES)?,
