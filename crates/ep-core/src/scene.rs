@@ -42,8 +42,9 @@ pub struct Tile {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Ribbon {
     pub edges: Vec<[[f32; 3]; 2]>,
-    /// The fill colour of each slot, and the hue it comes from.
+    /// The fill colour of each slot.
     pub colours: Vec<[f32; 4]>,
+    /// The hue each slot's colour comes from (0..1).
     pub hues: Vec<f32>,
 }
 

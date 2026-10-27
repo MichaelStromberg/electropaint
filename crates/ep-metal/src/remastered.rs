@@ -349,6 +349,8 @@ impl Remastered {
         };
         let [smearing, still] = gathered.groups;
         let trail = !smearing.is_empty();
+        // The two groups have depth buffers of their own, so where strands
+        // that smear and strands that don't meet, the latter are in front.
         if trail {
             self.encode_strand(cb, t, &view, smearing, buffers);
             self.encode_trail(cb, t, steps, gathered.fade);
@@ -543,7 +545,8 @@ struct Gathered {
     ribbons: Vec<RibbonVertex>,
     /// The strands that smear, and the others.
     groups: [Group; 2],
-    /// The middle strand's background (linear), or the first one's there is.
+    /// The middle strand's background (linear), or else the first strand's
+    /// that has a picture.
     background: [f32; 4],
     /// Whether the smearing strands fade.
     fade: bool,

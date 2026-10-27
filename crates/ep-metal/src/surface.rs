@@ -57,7 +57,8 @@ impl Strands {
 }
 
 /// The strand of `count` that takes input (keys, clicks, the control
-/// panel), and whose background the remastered style shows: the middle one.
+/// panel), and whose background the remastered style shows (while it has
+/// a picture): the middle one.
 pub fn main_strand(count: usize) -> usize {
     count / 2
 }
@@ -112,7 +113,9 @@ impl Surface {
         Ok(surface)
     }
 
-    /// Draws in `style` from now on. The shows carry on as they were.
+    /// Draws in `style` from now on. The shows carry on as they were; the
+    /// style left behind frees its buffers, and classic starts black again
+    /// when it picks the shows up.
     ///
     /// # Errors
     ///
@@ -198,16 +201,17 @@ impl Surface {
 struct Classic {
     /// One per strand; the first made the others (`Renderer::sibling`).
     renderers: Vec<Renderer>,
-    /// The renderers missed frames while another style drew, and must pick
-    /// the shows up again.
+    /// The renderers must pick the shows up again: they are new, or they
+    /// missed frames while another style drew. (New siblings always do.)
     resync: bool,
 }
 
 impl Classic {
     fn new() -> Result<Self, RendererError> {
+        // A show may have run in another style first.
         Ok(Classic {
             renderers: vec![Renderer::system_default()?],
-            resync: false,
+            resync: true,
         })
     }
 
@@ -232,15 +236,21 @@ impl Classic {
         let most = if width == 0 { usize::MAX } else { width };
         let shows: Vec<&mut Show> = shows.into_iter().take(most).collect();
         let count = shows.len().max(1);
+        let had = self.renderers.len();
         while self.renderers.len() < count {
             let sibling = self.renderers[0].sibling();
             self.renderers.push(sibling);
         }
-        if std::mem::take(&mut self.resync) {
-            for (show, renderer) in shows.iter().zip(&mut self.renderers) {
-                let (draw_buffer, projection) = show.sim().draw_state();
-                renderer.resync(draw_buffer, projection);
-            }
+        // The state is the show's latest, one computed step ahead of the
+        // screen; it differs only if that step toggles smear or smooth.
+        let from = if std::mem::take(&mut self.resync) {
+            0
+        } else {
+            had
+        };
+        for (show, renderer) in shows.iter().zip(&mut self.renderers).skip(from) {
+            let (draw_buffer, projection) = show.sim().draw_state();
+            renderer.resync(draw_buffer, projection);
         }
         let mut changed = false;
         for (index, (show, renderer)) in shows.into_iter().zip(&mut self.renderers).enumerate() {
@@ -302,6 +312,31 @@ mod tests {
         ] {
             assert_eq!(auto_strands(w, h), n, "{w}x{h}");
         }
+    }
+
+    /// A show that ran in another style first (here with smear, which draws
+    /// into both buffers) is picked up by classic's first renderers too.
+    #[test]
+    fn classic_picks_up_a_show_that_ran_in_another_style() -> Result<(), RendererError> {
+        let mut opts = ep_core::Options::new(3);
+        opts.scene = true;
+        let mut show = Show::new(opts);
+        show.sim_mut().press(ep_core::ids::SMEAR);
+        let mut surface = Surface::new(Style::Remastered)?;
+        surface.fit(NSSize::new(64.0, 48.0), 1.0, 1.0);
+        for i in 0..30 {
+            surface.render([&mut show], f64::from(i) / 60.0);
+        }
+        surface.set_style(Style::Classic)?;
+        surface.render([&mut show], 0.5);
+        let Some(classic) = &surface.classic else {
+            panic!("no classic renderers");
+        };
+        assert_eq!(
+            classic.renderers[0].draw_buffer,
+            ep_core::frame::DrawBuffer::Both
+        );
+        Ok(())
     }
 
     #[test]
