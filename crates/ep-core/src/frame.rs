@@ -82,8 +82,14 @@ pub struct Frame {
 }
 
 impl Frame {
-    /// How many `swapbuffers` the tick did: the 60 Hz retraces it took.
+    /// How many `swapbuffers` the tick did.
     pub fn swap_count(&self) -> usize {
         self.ops.iter().filter(|op| matches!(op, Op::Swap)).count()
+    }
+
+    /// How long the tick takes on screen, in 60 Hz retraces: one per swap,
+    /// and one for a tick that didn't swap (rare), so time still moves.
+    pub fn retraces(&self) -> u32 {
+        u32::try_from(self.swap_count()).map_or(u32::MAX, |n| n.max(1))
     }
 }

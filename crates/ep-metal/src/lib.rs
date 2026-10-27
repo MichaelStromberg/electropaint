@@ -137,21 +137,9 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    /// A renderer on `device`.
-    ///
-    /// # Panics
-    ///
-    /// If Metal cannot set it up; see [`Renderer::try_new`].
-    pub fn new(device: Retained<Device>) -> Self {
-        Self::try_new(device).unwrap_or_else(|e| panic!("{e}"))
-    }
-
     /// A renderer on the system's default Metal device.
     pub fn system_default() -> Result<Self, RendererError> {
-        Self::try_new(MTLCreateSystemDefaultDevice().ok_or(RendererError::NoDevice)?)
-    }
-
-    pub fn try_new(device: Retained<Device>) -> Result<Self, RendererError> {
+        let device = MTLCreateSystemDefaultDevice().ok_or(RendererError::NoDevice)?;
         let queue = device
             .newCommandQueue()
             .ok_or(RendererError::Create("command queue"))?;

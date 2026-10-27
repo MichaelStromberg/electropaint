@@ -253,9 +253,6 @@ impl EpSlider {
     pub fn bounce(&self) -> u16 {
         self.id + ids::SLIDER_BOUNCE
     }
-    pub fn reset(&self) -> u16 {
-        self.id + ids::SLIDER_RESET
-    }
 }
 
 /// Clamp `v` into the span between `hi` and `lo` (either order), exactly as

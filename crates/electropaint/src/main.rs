@@ -139,7 +139,7 @@ fn write_snapshot(
     let (mut frames, mut retraces) = (Vec::new(), 0);
     while retraces < snap.frames && !sim.exited() {
         let frame = sim.tick();
-        retraces += frame.swap_count().max(1) as u64;
+        retraces += u64::from(frame.retraces());
         frames.push(frame);
     }
     let bgra = renderer.render_offscreen(snap.width, snap.height, &frames)?;
@@ -220,7 +220,7 @@ define_class!(
         fn close(&self) {
             // SAFETY: NSWindow's own `close`, which overrides must call.
             let _: () = unsafe { msg_send![super(self), close] };
-            NSApplication::sharedApplication(MainThreadMarker::from(self)).terminate(None);
+            quit(MainThreadMarker::from(self));
         }
     }
 );
@@ -276,7 +276,7 @@ impl ShowView {
         };
         drop(state);
         if exited {
-            NSApplication::sharedApplication(MainThreadMarker::from(self)).terminate(None);
+            quit(MainThreadMarker::from(self));
         }
     }
 
@@ -287,7 +287,7 @@ impl ShowView {
             .charactersIgnoringModifiers()
             .map(|s| s.to_string())
             .unwrap_or_default();
-        let quit = {
+        let quitting = {
             let mut state = self.ivars().borrow_mut();
             let Some(st) = state.as_mut() else { return };
             if st.quit_on_input || chars == "\u{1b}" {
@@ -300,15 +300,15 @@ impl ShowView {
                 false
             }
         };
-        if quit {
-            NSApplication::sharedApplication(MainThreadMarker::from(self)).terminate(None);
+        if quitting {
+            quit(MainThreadMarker::from(self));
         }
     }
 
     /// Fullscreen: quit. Interactive: ep's mouse actuator, which toggles
     /// its full-screen state (and with it the panels).
     fn click(&self) {
-        let quit = {
+        let quitting = {
             let state = self.ivars().borrow();
             let Some(st) = state.as_ref() else { return };
             if !st.quit_on_input {
@@ -316,10 +316,15 @@ impl ShowView {
             }
             st.quit_on_input
         };
-        if quit {
-            NSApplication::sharedApplication(MainThreadMarker::from(self)).terminate(None);
+        if quitting {
+            quit(MainThreadMarker::from(self));
         }
     }
+}
+
+/// Quits the app, which ends the process.
+fn quit(mtm: MainThreadMarker) {
+    NSApplication::sharedApplication(mtm).terminate(None);
 }
 
 fn show_options(opts: &Options, seed: i64) -> ep_core::Options {
@@ -335,15 +340,26 @@ fn seed_base(opts: &Options) -> i64 {
     opts.seed.unwrap_or_else(ep_core::Options::clock_seed)
 }
 
+/// Opens a window running `show`: borderless and covering `screen`, above
+/// the menu bar and Dock like a screen saver, or with no screen the
+/// `--windowed` window. `quit_on_input` makes any key or click quit.
 fn open_window(
     mtm: MainThreadMarker,
-    rect: NSRect,
-    style: NSWindowStyleMask,
     screen: Option<&NSScreen>,
     show: Rc<RefCell<Show>>,
-    fullscreen: bool,
     quit_on_input: bool,
-) -> (Retained<NSWindow>, Retained<ShowView>) {
+) -> Retained<NSWindow> {
+    let (rect, style) = match screen {
+        Some(screen) => (screen.frame(), NSWindowStyleMask::Borderless),
+        // The original's window: 1280x1024 aspect, at a comfortable size.
+        None => (
+            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1000.0, 800.0)),
+            NSWindowStyleMask::Titled
+                | NSWindowStyleMask::Closable
+                | NSWindowStyleMask::Miniaturizable
+                | NSWindowStyleMask::Resizable,
+        ),
+    };
     // SAFETY: NSWindow's designated initialiser, with its argument types, on a
     // fresh allocation.
     let window: Retained<ShowWindow> = unsafe {
@@ -362,8 +378,7 @@ fn open_window(
     let content = NSRect::new(NSPoint::new(0.0, 0.0), rect.size);
     let view = ShowView::new(mtm, content, show, quit_on_input);
     window.setContentView(Some(&view));
-    if fullscreen {
-        // Above the menu bar and Dock, like a screen saver.
+    if screen.is_some() {
         window.setLevel(SHOW_LEVEL);
         window.setFrame_display(rect, true);
     } else {
@@ -372,7 +387,7 @@ fn open_window(
     }
     window.makeKeyAndOrderFront(None);
     window.makeFirstResponder(Some(&view));
-    (window, view)
+    window
 }
 
 /// Window level of fullscreen shows: above the menu bar and Dock.
@@ -426,8 +441,6 @@ fn write_panel_snapshot(mtm: MainThreadMarker, path: &str, opts: &Options) {
     }
 }
 
-type ShowWindows = Vec<(Retained<NSWindow>, Retained<ShowView>)>;
-
 /// Opens the shows: one window with `--windowed`, else a borderless
 /// full-screen window on the main display (or on every display). Also
 /// returns the show the control panel drives: the (first) window's.
@@ -435,21 +448,15 @@ fn open_show_windows(
     mtm: MainThreadMarker,
     opts: &Options,
     interactive: bool,
-) -> (ShowWindows, Option<Rc<RefCell<Show>>>) {
+) -> (Vec<Retained<NSWindow>>, Option<Rc<RefCell<Show>>>) {
     let base = seed_base(opts);
     let new_show = |seed| Rc::new(RefCell::new(Show::new(show_options(opts, seed))));
     let mut windows = Vec::new();
     let mut panel_show = None;
     if opts.windowed {
-        // The original's window: 1280x1024 aspect, at a comfortable size.
-        let rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1000.0, 800.0));
-        let style = NSWindowStyleMask::Titled
-            | NSWindowStyleMask::Closable
-            | NSWindowStyleMask::Miniaturizable
-            | NSWindowStyleMask::Resizable;
         let show = new_show(base);
         panel_show = Some(show.clone());
-        windows.push(open_window(mtm, rect, style, None, show, false, false));
+        windows.push(open_window(mtm, None, show, false));
     } else {
         // The first screen is the main display (the one with the menu bar).
         let screens = NSScreen::screens(mtm);
@@ -459,18 +466,9 @@ fn open_show_windows(
             screens.len().min(1)
         };
         for (i, screen) in screens.iter().take(count).enumerate() {
-            let rect = screen.frame();
             let show = new_show(base + i as i64);
             panel_show.get_or_insert_with(|| show.clone());
-            windows.push(open_window(
-                mtm,
-                rect,
-                NSWindowStyleMask::Borderless,
-                Some(&screen),
-                show,
-                true,
-                !interactive,
-            ));
+            windows.push(open_window(mtm, Some(&screen), show, !interactive));
         }
         if !opts.controls {
             NSCursor::hide();

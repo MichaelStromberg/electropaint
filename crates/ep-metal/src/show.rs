@@ -60,8 +60,7 @@ impl Show {
                 None if self.sim.exited() => break,
                 None => {
                     let frame = self.sim.tick();
-                    // A tick with no swap (rare) still takes a retrace, so time moves.
-                    let retraces = frame.swap_count().max(1) as u32;
+                    let retraces = frame.retraces();
                     (frame, retraces)
                 }
             };

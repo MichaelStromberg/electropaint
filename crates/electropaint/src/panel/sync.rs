@@ -9,8 +9,8 @@ use ep_core::{Sim, ids};
 use objc2::rc::Retained;
 use objc2::{DefinedClass, MainThreadMarker};
 use objc2_app_kit::{
-    NSApplication, NSBox, NSButton, NSColor, NSControl, NSControlStateValueOff,
-    NSControlStateValueOn, NSGridView, NSSegmentedControl, NSTextField, NSView,
+    NSBox, NSButton, NSColor, NSControl, NSControlStateValueOff, NSControlStateValueOn, NSGridView,
+    NSSegmentedControl, NSTextField, NSView,
 };
 use objc2_foundation::NSString;
 
@@ -156,7 +156,7 @@ impl PanelController {
         let sim = show.sim();
         if sim.exited() {
             drop(show);
-            NSApplication::sharedApplication(mtm).terminate(None);
+            crate::quit(mtm);
             return;
         }
         let Some(chrome) = self.ivars().chrome.get() else {

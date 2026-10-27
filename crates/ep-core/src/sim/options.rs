@@ -62,13 +62,6 @@ impl Options {
     }
 }
 
-impl Default for Options {
-    /// The default show seeded from the clock, as the original does.
-    fn default() -> Options {
-        Options::new(Options::clock_seed())
-    }
-}
-
 /// Why a `swapbuffers` happened. Ticks normally present once, but the
 /// original also swaps at startup, twice when changing between window and
 /// full screen, twice per tick in smooth mode, and while stopped.

@@ -2,13 +2,12 @@
 
 use ep_core::frame::{DrawBuffer, DrawState, Frame, Op, Projection, Vertex};
 use ep_metal::{Renderer, RendererError};
-use objc2_metal::MTLCreateSystemDefaultDevice;
 
 const W: usize = 128;
 const H: usize = 128;
 
 fn renderer() -> Renderer {
-    Renderer::new(MTLCreateSystemDefaultDevice().expect("Metal device"))
+    Renderer::system_default().expect("Metal device")
 }
 
 /// RGBA at (x, y), y counted from the top.
