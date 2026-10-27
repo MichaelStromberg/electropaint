@@ -29,7 +29,8 @@ pub use calllog::{Arg, IrisCall};
 pub(crate) use light::lm;
 use light::{BoundLight, LModel, Light, Material};
 use math::transform_point;
-pub(crate) use math::{IDENTITY, Mat4, mat_mul, rotation, scaling, translation};
+pub(crate) use math::{IDENTITY, Mat4, rotation};
+use math::{mat_mul, scaling, translation};
 
 /// What `color(index)` does in RGB mode. The man page calls it an error;
 /// ep issues it in its fade (rendering.md §8.1).
@@ -136,16 +137,13 @@ impl Gl {
         self.log.as_mut().map(std::mem::take).unwrap_or_default()
     }
 
-    /// Record a call that has no GL state effect here (window management,
-    /// `srand48`, `drand48`, …).
-    pub(crate) fn log_call(&mut self, name: &'static str, args: impl FnOnce() -> Vec<Arg>) {
+    /// Record a call when logging is on. The GL calls here log themselves;
+    /// calls with no GL state effect (window management, `srand48`,
+    /// `drand48`, …) are logged by their callers.
+    pub(crate) fn log(&mut self, name: &'static str, args: impl FnOnce() -> Vec<Arg>) {
         if let Some(l) = self.log.as_mut() {
             l.push(IrisCall { name, args: args() });
         }
-    }
-
-    fn log(&mut self, name: &'static str, args: impl FnOnce() -> Vec<Arg>) {
-        self.log_call(name, args);
     }
 
     /// The modelview matrix in force.

@@ -95,7 +95,7 @@ pub struct Sim {
     pub(crate) controls: Controls,
     pub(crate) recs: Vec<Option<ActRec>>,
     pub(crate) seqs: Vec<SeqState>,
-    pub(crate) edit_seq: Option<i32>,
+    edit_seq: Option<i32>,
     pub(crate) current_frame: f32,
     pub(crate) auto_released: bool,
     aflag: bool,
@@ -109,7 +109,7 @@ pub struct Sim {
     pub(crate) nlimit: i32,
     gchan: usize,
     gchant: f32,
-    pub(crate) gcol: f32,
+    gcol: f32,
     ghue: f32,
     glight: f32,
     bhue: f32,
@@ -119,18 +119,16 @@ pub struct Sim {
     gspin: f32,
     pub(crate) hist: History,
     bkg: i32,
-    pub(crate) bkg_rgba: [f32; 4],
+    bkg_rgba: [f32; 4],
     pub(crate) col_rgba: [f32; 4],
     pub(crate) outline_rgba: [f32; 4],
     fade_phase: usize,
     puck: [f32; 2],
-    current_texture: i32,
     /// libpanel's current actuator (`pnl_ca`): the one being held.
     pub(crate) grabbed: Option<u16>,
     stopped_loop: bool,
     panels_visible: bool,
     exited: bool,
-    ticks: u64,
     pending_redraw: bool,
     inputs: VecDeque<Input>,
     next_inputs: Vec<Input>,
@@ -150,8 +148,8 @@ struct Between {
     bkg_rgba: [f32; 4],
 }
 
-pub(crate) const NCOLORS: i32 = 128;
-pub(crate) const BASECOLOR: i32 = 640;
+const NCOLORS: i32 = 128;
+const BASECOLOR: i32 = 640;
 const HAS_ZBUFFER: bool = true;
 const HAS_LIGHTING: bool = true;
 
@@ -209,12 +207,10 @@ impl Sim {
             outline_rgba: [0.0, 0.0, 1.0, 1.0],
             fade_phase: 0,
             puck: [0.0; 2],
-            current_texture: 0,
             grabbed: None,
             stopped_loop: false,
             panels_visible: script.is_none(),
             exited: false,
-            ticks: 0,
             pending_redraw: opts.startup_redraw,
             inputs: VecDeque::new(),
             next_inputs: Vec::new(),
@@ -228,10 +224,10 @@ impl Sim {
 
     fn init(&mut self, seed: i64) {
         // `srand48(0)` then `srand48(time)`: only the second one matters.
-        self.gl.log_call("srand48", || vec![Arg::Int(0)]);
+        self.gl.log("srand48", || vec![Arg::Int(0)]);
         self.rng.srand48(0);
         self.gl
-            .log_call("srand48", || vec![Arg::Int(i64::from(seed as i32))]);
+            .log("srand48", || vec![Arg::Int(i64::from(seed as i32))]);
         self.rng.srand48(seed);
         let gl = &mut self.gl;
         gl.doublebuffer();
@@ -285,7 +281,6 @@ impl Sim {
             self.swaps.push(SwapCause::Startup);
         }
         if !self.exited {
-            self.ticks += 1;
             self.main_loop_pass();
             for i in self.next_inputs.drain(..) {
                 self.inputs.push_back(i);

@@ -20,7 +20,7 @@ const NORMAL: [f32; 3] = [0.0, 0.0, 1.0];
 
 /// `twixt(k, a, t)`: interpolate between slot k−1 (weight 1−t) and slot k.
 /// The first product is double precision, the second single.
-pub(crate) fn twixt(a: &[f32; RING], k: usize, t: f32) -> f32 {
+fn twixt(a: &[f32; RING], k: usize, t: f32) -> f32 {
     let p = (k + RING - 1) % RING;
     (f64::from(a[p]) * (1.0 - f64::from(t)) + f64::from(a[k] * t)) as f32
 }
@@ -28,7 +28,7 @@ pub(crate) fn twixt(a: &[f32; RING], k: usize, t: f32) -> f32 {
 /// `foldtwixt(k, a, t, per)`: like [`twixt`] for a periodic quantity, taking
 /// the short way round when the two slots are more than half a period
 /// apart. The result is not re-wrapped.
-pub(crate) fn foldtwixt(a: &[f32; RING], k: usize, t: f32, per: f64) -> f32 {
+fn foldtwixt(a: &[f32; RING], k: usize, t: f32, per: f64) -> f32 {
     let per = per as f32;
     let p = (k + RING - 1) % RING;
     let (c, q) = (a[k], a[p]);
@@ -238,7 +238,7 @@ impl Sim {
     /// material's ambient factor is uninitialised (logged as NaN) and no
     /// normal is ever sent; in quad mode `bgntmesh` is called once per copy
     /// but `endtmesh` only once, and copies 3 and 4 twist the other way.
-    pub(crate) fn drawribbons(&mut self) {
+    fn drawribbons(&mut self) {
         if self.controls.act(ids::ZBUF).on() {
             self.gl.zclear();
         }

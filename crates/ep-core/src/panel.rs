@@ -258,7 +258,7 @@ impl EpSlider {
 /// Clamp `v` into the span between `hi` and `lo` (either order), exactly as
 /// the original's inline comparisons do (a NaN lands on `lo`, or on `hi`
 /// when the span is reversed).
-pub(crate) fn clamp_span(v: f32, hi: f32, lo: f32) -> f32 {
+fn clamp_span(v: f32, hi: f32, lo: f32) -> f32 {
     if lo < hi {
         if lo <= v {
             if v <= hi { v } else { hi }
@@ -470,7 +470,7 @@ impl Controls {
 
     /// `updatedwellsliders`: renormalise the other four dwell values after
     /// dwell slider `k` moved since the last call.
-    pub(crate) fn update_dwell_sliders(&mut self, k: usize) {
+    fn update_dwell_sliders(&mut self, k: usize) {
         let vals: [f32; 5] = std::array::from_fn(|i| self.act(ids::dwell(i)).val);
         let mut sum = 0.0f32;
         for (i, v) in vals.iter().enumerate() {
@@ -494,7 +494,7 @@ impl Controls {
     }
 
     /// `updateactivebutton`: release every other channel's active button.
-    pub(crate) fn update_active_button(&mut self, k: usize) {
+    fn update_active_button(&mut self, k: usize) {
         for i in (0..5).filter(|&i| i != k) {
             let a = self.act_mut(ids::active_button(i));
             a.val = a.min;

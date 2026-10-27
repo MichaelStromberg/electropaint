@@ -92,7 +92,7 @@ impl Show {
     }
 
     /// Advances to `time` and renders onto `layer`.
-    pub fn render(
+    pub(crate) fn render(
         &mut self,
         renderer: &mut Renderer,
         layer: &objc2_quartz_core::CAMetalLayer,

@@ -82,14 +82,14 @@ impl SeqState {
 
 impl Sim {
     /// One `drand48()` draw (logged like the tracer logs it).
-    pub(crate) fn drand48(&mut self) -> f64 {
+    fn drand48(&mut self) -> f64 {
         let u = self.rng.drand48();
-        self.gl.log_call("drand48", || vec![Arg::Double(u)]);
+        self.gl.log("drand48", || vec![Arg::Double(u)]);
         u
     }
 
     /// `exprand(1.0)`: a value in [0,1) with mean (e−2)/(e−1).
-    pub(crate) fn exprand(&mut self) -> f32 {
+    fn exprand(&mut self) -> f32 {
         let m = 1.0f64;
         let u = self.drand48();
         ((u * m).exp_m1() / m.exp_m1()) as f32

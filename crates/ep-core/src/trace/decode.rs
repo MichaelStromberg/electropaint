@@ -136,8 +136,6 @@ fn static_name(name: &str) -> &'static str {
 pub(crate) struct Record {
     pub name: &'static str,
     pub args: Vec<Arg>,
-    /// The raw values of pointer arguments, in order.
-    pub ptrs: Vec<u32>,
     pub ret: Option<Arg>,
 }
 
@@ -201,13 +199,12 @@ impl<'a> Decoder<'a> {
         let Some(d) = self.ops.ops.get(&op) else {
             return Some(Err(format!("unknown opcode {op}")));
         };
-        let (mut args, mut ptrs, mut off) = (Vec::with_capacity(d.params.len()), Vec::new(), 0);
+        let (mut args, mut off) = (Vec::with_capacity(d.params.len()), 0);
         for &(ty, ext) in &d.params {
-            let Some((arg, ptr, size)) = read_param(ty, ext, pay, off, &args) else {
+            let Some((arg, size)) = read_param(ty, ext, pay, off, &args) else {
                 return Some(Err(format!("{}: short payload", d.name)));
             };
             args.push(arg);
-            ptrs.extend(ptr);
             off += size;
         }
         off += 4 * d.outs.min(pay.len().saturating_sub(off) / 4);
@@ -218,15 +215,13 @@ impl<'a> Decoder<'a> {
         Some(Ok(Record {
             name: d.name,
             args,
-            ptrs,
             ret,
         }))
     }
 }
 
-/// One parameter at byte `off` of a payload: the argument, the pointer
-/// value if it is a pointer logged by address, and the bytes it takes.
-/// `ext` is the extent of a pointer logged by value, which may come from an
+/// One parameter at byte `off` of a payload: the argument and the bytes it
+/// takes. `ext` is the extent of a pointer logged by value, which may come from an
 /// earlier argument. `None` for a short payload.
 fn read_param(
     ty: Ty,
@@ -234,7 +229,7 @@ fn read_param(
     pay: &[u8],
     off: usize,
     args: &[Arg],
-) -> Option<(Arg, Option<u32>, usize)> {
+) -> Option<(Arg, usize)> {
     if let Some(ext) = ext {
         let n = match ext {
             Extent::Fixed(n) => n,
@@ -247,12 +242,12 @@ fn read_param(
         let v = (0..n)
             .map(|i| be::<4>(pay, off + 4 * i).map(f32::from_be_bytes))
             .collect::<Option<Vec<f32>>>()?;
-        Some((Arg::Floats(v), None, 4 * n))
+        Some((Arg::Floats(v), 4 * n))
     } else if ty == Ty::Ptr {
-        let p = be::<4>(pay, off).map(u32::from_be_bytes).unwrap_or(0);
-        Some((Arg::Ptr, Some(p), 4))
+        // Logged by address, which a comparison can't use.
+        Some((Arg::Ptr, 4))
     } else {
-        Some((read_scalar(ty, pay, off)?, None, ty.size()))
+        Some((read_scalar(ty, pay, off)?, ty.size()))
     }
 }
 

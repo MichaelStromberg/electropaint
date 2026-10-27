@@ -85,7 +85,7 @@ const DRAW_CALLS: &[&str] = &[
 /// only partly compared: `mapcolor` only for the five channel swatches ep
 /// sets every frame (0x300..0x304; the rest is panel colour-map
 /// bookkeeping), and `defpattern` not for libpanel's own pattern 1.
-pub(crate) fn is_draw_call(c: &IrisCall) -> bool {
+fn is_draw_call(c: &IrisCall) -> bool {
     if !DRAW_CALLS.contains(&c.name) {
         return false;
     }
@@ -110,7 +110,7 @@ pub struct TraceFrame {
 }
 
 /// Decode a whole trace into frames.
-pub(crate) fn frames(ops: &OpsTable, data: &[u8]) -> Result<Vec<TraceFrame>, String> {
+fn frames(ops: &OpsTable, data: &[u8]) -> Result<Vec<TraceFrame>, String> {
     let mut out = Vec::new();
     let mut cur = TraceFrame::default();
     let mut last_qread: Option<i64> = None;

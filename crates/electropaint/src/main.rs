@@ -160,7 +160,6 @@ fn write_snapshot(
 struct ViewState {
     show: Rc<RefCell<Show>>,
     surface: Surface,
-    link: Option<Retained<CADisplayLink>>,
     /// Screensaver-style: any key or click quits. Otherwise input goes to ep.
     quit_on_input: bool,
 }
@@ -238,11 +237,11 @@ impl ShowView {
         let link = unsafe { view.displayLinkWithTarget_selector(&view as &AnyObject, sel!(step:)) };
         // SAFETY: the main run loop, from the main thread (`MainThreadOnly`).
         unsafe { link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSDefaultRunLoopMode) };
+        // The run loop retains the link, which runs until the app quits.
 
         *view.ivars().borrow_mut() = Some(ViewState {
             show,
             surface,
-            link: Some(link),
             quit_on_input,
         });
         view
@@ -306,14 +305,6 @@ impl ShowView {
         };
         if quit {
             NSApplication::sharedApplication(MainThreadMarker::from(self)).terminate(None);
-        }
-    }
-
-    fn stop(&self) {
-        if let Some(st) = self.ivars().borrow_mut().as_mut()
-            && let Some(link) = st.link.take()
-        {
-            link.invalidate();
         }
     }
 }
@@ -392,7 +383,8 @@ fn main() {
     app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
 
     let interactive = opts.windowed || opts.controls;
-    let (windows, panel_show) = open_show_windows(mtm, &opts, interactive);
+    // Kept alive while the app runs, which is until it quits the process.
+    let (_windows, panel_show) = open_show_windows(mtm, &opts, interactive);
     let level = if opts.windowed { 0 } else { SHOW_LEVEL };
     // With no display there is no show, and so no panel either.
     let _panel = panel_show
@@ -402,10 +394,6 @@ fn main() {
     #[allow(deprecated)]
     app.activateIgnoringOtherApps(true);
     app.run();
-
-    for (_, view) in &windows {
-        view.stop();
-    }
 }
 
 /// `--panel-snapshot`: draws the control panel as it is after five seconds
