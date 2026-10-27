@@ -20,6 +20,7 @@ missing_panics_doc = "warn"
 or_fun_call = "warn"
 borrow_as_ptr = "warn"
 trivially_copy_pass_by_ref = "warn"
+unused_self = "warn"
 # Contradicts unreachable_pub inside private modules.
 redundant_pub_crate = "allow"
 
