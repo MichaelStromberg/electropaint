@@ -10,6 +10,7 @@ swapbuffers; a frame's calls are printed under a "== frame N" header.
 import argparse
 import json
 import struct
+import sys
 from collections import Counter
 
 FMT = {"char": ">b", "unsigned char": ">B", "short": ">h", "unsigned short": ">H",
@@ -18,14 +19,23 @@ FMT = {"char": ">b", "unsigned char": ">B", "short": ">h", "unsigned short": ">H
 
 
 def decode(ops, data):
-    """Yield (frame, name, args, ret) for each record."""
-    assert data[:4] == b"EPT1", "not an eptrace file"
+    """Yield (frame, name, args, ret) for each record. A truncated final
+    record (the program died mid-write) ends the trace; an opcode missing
+    from the table is shown as ?opN with its payload size."""
+    if data[:4] != b"EPT1":
+        raise ValueError("not an EPT1 trace")
     pos, frame = 4, 0
     while pos + 4 <= len(data):
         op, plen = struct.unpack_from(">HH", data, pos)
+        if pos + 4 + plen > len(data):
+            print("truncated final record", file=sys.stderr)
+            break
         pay = data[pos + 4:pos + 4 + plen]
         pos += 4 + plen
-        d = ops[str(op)]
+        d = ops.get(str(op))
+        if d is None:
+            yield frame, f"?op{op}", [f"{plen} bytes"], None
+            continue
         args, off = [], 0
         for i, p in enumerate(d["params"]):
             ext = d["extents"].get(str(i))
@@ -75,18 +85,20 @@ def main():
         ops = json.load(f)["ops"]
     with open(a.trace, "rb") as f:
         data = f.read()
+    if data[:4] != b"EPT1":
+        sys.exit(f"{a.trace}: not an EPT1 trace")
     lo, hi = 0, 1 << 30
     if a.frames:
         x, y = a.frames.split(":")
         lo, hi = int(x or 0), int(y or 1 << 30)
     if a.summary:
         c = Counter()
-        frames = 0
+        frames = set()
         for frame, name, _, _ in decode(ops, data):
             if lo <= frame < hi:
                 c[name] += 1
-                frames = max(frames, frame)
-        print(f"frames: {frames + 1}")
+                frames.add(frame)
+        print(f"frames: {len(frames)}")
         for k, v in c.most_common():
             print(f"{v:8d} {k}")
         return
