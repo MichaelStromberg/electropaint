@@ -16,7 +16,7 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSCursor, NSEvent, NSScreen,
     NSView, NSWindow, NSWindowStyleMask,
 };
-use objc2_foundation::{NSDefaultRunLoopMode, NSPoint, NSRect, NSRunLoop, NSSize, NSString};
+use objc2_foundation::{NSPoint, NSRect, NSRunLoop, NSRunLoopCommonModes, NSSize, NSString};
 use objc2_quartz_core::CADisplayLink;
 
 struct Options {
@@ -246,8 +246,10 @@ impl ShowView {
 
         // SAFETY: `step:` is defined on this class and takes the `CADisplayLink`.
         let link = unsafe { view.displayLinkWithTarget_selector(&view as &AnyObject, sel!(step:)) };
+        // In the common modes, so the show keeps running while a panel
+        // slider is dragged or the window resized (event tracking mode).
         // SAFETY: the main run loop, from the main thread (`MainThreadOnly`).
-        unsafe { link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSDefaultRunLoopMode) };
+        unsafe { link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSRunLoopCommonModes) };
         // The run loop retains the link, which runs until the app quits.
 
         *view.ivars().borrow_mut() = Some(ViewState {
