@@ -19,7 +19,7 @@ use ep_core::{Sim, ids};
 use ep_metal::show::Show;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameDarkAqua, NSApplication,
     NSBackingStoreType, NSBox, NSBoxType, NSButton, NSColor, NSControl, NSControlSize,
@@ -122,6 +122,27 @@ struct Control {
     /// costs AppKit a layout pass and a redraw even when nothing changes, so
     /// unchanged controls are left alone.
     shown: Cell<Option<[f32; 2]>>,
+    /// How far a slider's value may drift from `shown` before it is set
+    /// again: `KNOB_STEP` of knob travel. 0 for other controls.
+    tolerance: f64,
+}
+
+impl Control {
+    /// Whether the control can be left alone this refresh, with the
+    /// simulation at `state`.
+    fn is_current(&self, state: [f32; 2], refresh: u64) -> bool {
+        let Some(shown) = self.shown.get() else {
+            return false;
+        };
+        if shown == state {
+            return true;
+        }
+        match self.bind {
+            Bind::Readout(_) => !refresh.is_multiple_of(READOUT_EVERY),
+            Bind::Value(_) => f64::from((state[0] - shown[0]).abs()) < self.tolerance,
+            _ => false,
+        }
+    }
 }
 
 /// The channel grid and its rows for the hue sliders and for the
@@ -238,7 +259,7 @@ impl PanelController {
         // across its width.
         let root = NSView::new(mtm);
         let slot = NSView::new(mtm);
-        let picker_view = into_view(picker.clone());
+        let picker_view = into_view(&*picker);
         for v in [&picker_view, &slot, &bar] {
             v.setTranslatesAutoresizingMaskIntoConstraints(false);
             root.addSubview(v);
@@ -432,7 +453,7 @@ impl PanelController {
                 ]
             })
             .collect();
-        let backdrop = into_view(narrow(grid(mtm, backdrop)));
+        let backdrop = into_view(&*narrow(grid(mtm, backdrop)));
 
         let mode = NSSegmentedControl::new(mtm);
         mode.setSegmentCount(2);
@@ -485,7 +506,7 @@ impl PanelController {
         for column in [1, 3] {
             g.columnAtIndex(column).setTrailingPadding(18.0);
         }
-        into_view(g)
+        into_view(&*g)
     }
 
     /// The ep sliders: value with its reading, the drift window, the rate,
@@ -510,7 +531,7 @@ impl PanelController {
                 self.reset_button(mtm, id),
             ]);
         }
-        into_view(narrow(grid(mtm, rows)))
+        into_view(&*narrow(grid(mtm, rows)))
     }
 
     /// One column per colour channel.
@@ -559,7 +580,7 @@ impl PanelController {
             }
             set.push(rows.len() as isize);
             rows.push(row("", &|i| {
-                into_view(hstack(
+                into_view(&*hstack(
                     mtm,
                     &[
                         self.bounce_button(mtm, base(i)),
@@ -579,7 +600,7 @@ impl PanelController {
             light: light_rows,
             hue_mode: Cell::new(None),
         });
-        into_view(g)
+        into_view(&*g)
     }
 
     fn page_picker(&self, mtm: MainThreadMarker, labels: &[&str]) -> Retained<NSSegmentedControl> {
@@ -606,7 +627,7 @@ impl PanelController {
                 NSStackViewGravity::Trailing,
             );
         }
-        into_view(bar)
+        into_view(&*bar)
     }
 
     // ----------------------------------------------------------- controls
@@ -631,10 +652,10 @@ impl PanelController {
     }
 
     fn register(&self, view: &Retained<NSView>, bind: Bind) {
-        self.register_control(view, bind, false);
+        self.register_control(view, bind, false, 0.0);
     }
 
-    fn register_control(&self, view: &Retained<NSView>, bind: Bind, tinted: bool) {
+    fn register_control(&self, view: &Retained<NSView>, bind: Bind, tinted: bool, tolerance: f64) {
         let mut controls = self.ivars().controls.borrow_mut();
         if let Some(control) = view.downcast_ref::<NSControl>() {
             control.setTag(controls.len() as isize);
@@ -652,6 +673,7 @@ impl PanelController {
             edited: Cell::new(None),
             tinted,
             shown: Cell::new(None),
+            tolerance,
         });
     }
 
@@ -672,7 +694,7 @@ impl PanelController {
             .constraintEqualToConstant(width)
             .setActive(true);
         let view: Retained<NSView> = Retained::into_super(Retained::into_super(s));
-        self.register(&view, bind);
+        self.register_control(&view, bind, false, KNOB_STEP * (max - min) / width);
         view
     }
 
@@ -719,7 +741,7 @@ impl PanelController {
         b.setBordered(false);
         b.setToolTip(Some(&ns(tip)));
         let view: Retained<NSView> = Retained::into_super(Retained::into_super(b));
-        self.register_control(&view, bind, true);
+        self.register_control(&view, bind, true, 0.0);
         view
     }
 
@@ -778,31 +800,44 @@ impl PanelController {
     // ------------------------------------------------------------ events
 
     fn on_change(&self, index: usize) {
-        let controls = self.ivars().controls.borrow();
-        let Some(c) = controls.get(index) else { return };
-        c.edited.set(Some(Instant::now()));
-        // The user moved it: show the simulation's value again afterwards
-        // even if that hasn't changed.
-        c.shown.set(None);
-        let mut show = self.ivars().show.borrow_mut();
-        let sim = show.sim_mut();
-        match c.bind {
-            Bind::Value(id) => {
-                if let Some(s) = c.view.downcast_ref::<NSControl>() {
-                    sim.set_value(id, s.doubleValue() as f32);
-                }
-            }
-            Bind::Press(id) => {
-                sim.press(id);
-                // A press can change controls nobody touched: AppKit turns off
-                // the other radios of a group itself, and a reset moves many
-                // sliders. Show them all afresh.
+        // Take what's needed and let go of the borrow: acting on it may run
+        // the run loop, and with it the show and this panel's refresh.
+        let (bind, view) = {
+            let controls = self.ivars().controls.borrow();
+            let Some(c) = controls.get(index) else { return };
+            c.edited.set(Some(Instant::now()));
+            // The user moved it: show the simulation's value again afterwards
+            // even if that hasn't changed.
+            c.shown.set(None);
+            if matches!(c.bind, Bind::Press(_)) {
+                // A press can change controls nobody touched: AppKit turns
+                // off the other radios of a group itself, and a reset moves
+                // many sliders. Show them all afresh.
                 for other in controls.iter() {
                     other.shown.set(None);
                 }
             }
+            (c.bind, c.view.clone())
+        };
+        if matches!(bind, Bind::Page) {
+            // The panel's own state. The switch animates the window's
+            // resize, so it runs with no borrows held.
+            if let Some(s) = view.downcast_ref::<NSSegmentedControl>() {
+                self.show_page(s.selectedSegment().max(0) as usize, true);
+            }
+            return;
+        }
+        let mut show = self.ivars().show.borrow_mut();
+        let sim = show.sim_mut();
+        match bind {
+            Bind::Value(id) => {
+                if let Some(s) = view.downcast_ref::<NSControl>() {
+                    sim.set_value(id, s.doubleValue() as f32);
+                }
+            }
+            Bind::Press(id) => sim.press(id),
             Bind::Puck(axis) => {
-                if let Some(s) = c.view.downcast_ref::<NSControl>() {
+                if let Some(s) = view.downcast_ref::<NSControl>() {
                     let mut p = self.ivars().puck.get();
                     p[axis] = s.doubleValue() as f32;
                     self.ivars().puck.set(p);
@@ -817,8 +852,7 @@ impl PanelController {
                 // Clicking ep's hue palette switches to lightness, and the
                 // lightness palette switches back.
                 let lightness = !sim.controls().hue_mode;
-                let want = c
-                    .view
+                let want = view
                     .downcast_ref::<NSSegmentedControl>()
                     .map_or(0, |s| s.selectedSegment());
                 if (want == 1) != lightness {
@@ -829,12 +863,7 @@ impl PanelController {
                     });
                 }
             }
-            Bind::Page => {
-                if let Some(s) = c.view.downcast_ref::<NSSegmentedControl>() {
-                    self.show_page(s.selectedSegment().max(0) as usize, true);
-                }
-            }
-            Bind::Readout(_) | Bind::Swatch(_) => {}
+            Bind::Page | Bind::Readout(_) | Bind::Swatch(_) => {}
         }
     }
 
@@ -881,7 +910,7 @@ impl PanelController {
                 continue;
             }
             let state = self.state_of(c, sim);
-            if self.is_current(c, state, refresh) {
+            if c.is_current(state, refresh) {
                 continue;
             }
             c.shown.set(Some(state));
@@ -889,26 +918,6 @@ impl PanelController {
         }
         if let Some(rows) = self.ivars().chan_rows.borrow().as_ref() {
             rows.show(sim.controls().hue_mode);
-        }
-    }
-
-    /// Whether `c`, last set to show `shown`, still shows `state` closely
-    /// enough to leave alone this refresh.
-    fn is_current(&self, c: &Control, state: [f32; 2], refresh: u64) -> bool {
-        let Some(shown) = c.shown.get() else {
-            return false;
-        };
-        if shown == state {
-            return true;
-        }
-        match c.bind {
-            Bind::Readout(_) => !refresh.is_multiple_of(READOUT_EVERY),
-            Bind::Value(_) => c.view.downcast_ref::<NSSlider>().is_some_and(|s| {
-                let span = s.maxValue() - s.minValue();
-                let moved = f64::from((state[0] - shown[0]).abs()) / span * s.bounds().size.width;
-                moved < KNOB_STEP
-            }),
-            _ => false,
         }
     }
 
@@ -996,13 +1005,8 @@ fn ns(s: &str) -> Retained<NSString> {
 }
 
 /// Any view, as an `NSView`.
-fn into_view<T>(v: Retained<T>) -> Retained<NSView>
-where
-    T: objc2::Message + AsRef<NSView>,
-{
-    // SAFETY: `AsRef<NSView>` is implemented exactly for NSView's
-    // subclasses, so the object is an NSView.
-    unsafe { Retained::cast_unchecked(v) }
+fn into_view(v: &(impl AsRef<NSView> + ?Sized)) -> Retained<NSView> {
+    v.as_ref().retain()
 }
 
 fn text(mtm: MainThreadMarker, s: &str) -> Retained<NSTextField> {
@@ -1011,7 +1015,7 @@ fn text(mtm: MainThreadMarker, s: &str) -> Retained<NSTextField> {
 
 /// A row or field name.
 fn name(mtm: MainThreadMarker, s: &str) -> Retained<NSView> {
-    into_view(text(mtm, s))
+    into_view(&*text(mtm, s))
 }
 
 /// Small secondary text: column headings and key hints.
@@ -1019,7 +1023,7 @@ fn caption(mtm: MainThreadMarker, s: &str) -> Retained<NSView> {
     let t = text(mtm, s);
     t.setFont(Some(&NSFont::systemFontOfSize(11.0)));
     t.setTextColor(Some(&NSColor::secondaryLabelColor()));
-    into_view(t)
+    into_view(&*t)
 }
 
 fn empty(mtm: MainThreadMarker) -> Retained<NSView> {
@@ -1064,7 +1068,7 @@ fn stack(
 fn hstack(mtm: MainThreadMarker, views: &[Retained<NSView>]) -> Retained<NSView> {
     let s = stack(mtm, views, NSUserInterfaceLayoutOrientation::Horizontal);
     s.setSpacing(10.0);
-    into_view(s)
+    into_view(&*s)
 }
 
 /// Makes `child` as wide as `parent` less `inset` on each side.
@@ -1083,7 +1087,7 @@ fn page(mtm: MainThreadMarker, sections: &[Retained<NSView>]) -> Retained<NSView
     for section in sections {
         fill_width(section, &s, 0.0);
     }
-    into_view(s)
+    into_view(&*s)
 }
 
 /// A section in the System Settings style: a heading, with an optional
@@ -1098,14 +1102,14 @@ fn section(
     label.setFont(Some(&NSFont::systemFontOfSize_weight(13.0, 0.3)));
     let heading = stack(
         mtm,
-        &[into_view(label)],
+        &[into_view(&*label)],
         NSUserInterfaceLayoutOrientation::Horizontal,
     );
     if let Some(accessory) = accessory {
         heading.addView_inGravity(&accessory, NSStackViewGravity::Trailing);
     }
     let card = card(mtm, content);
-    let heading = into_view(heading);
+    let heading = into_view(&*heading);
     let s = stack(
         mtm,
         &[heading.clone(), card.clone()],
@@ -1115,7 +1119,7 @@ fn section(
     s.setSpacing(6.0);
     fill_width(&heading, &s, 0.0);
     fill_width(&card, &s, 0.0);
-    into_view(s)
+    into_view(&*s)
 }
 
 /// `content` on AppKit's group box background (which follows light and dark
@@ -1151,5 +1155,5 @@ fn card(mtm: MainThreadMarker, content: Retained<NSView>) -> Retained<NSView> {
     ] {
         a.constraintEqualToAnchor(&b).setActive(true);
     }
-    into_view(s)
+    into_view(&*s)
 }
