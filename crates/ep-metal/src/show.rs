@@ -118,16 +118,36 @@ mod tests {
     fn sixty_hz_shows_every_tick_once() {
         let mut show = Show::new(Options::new(1));
         // Warm up past the startup swaps.
-        kinds(&mut show, (0..20).map(|i| i as f64 / 60.0));
-        let k = kinds(&mut show, (20..30).map(|i| i as f64 / 60.0));
+        kinds(&mut show, (0..20).map(|i| f64::from(i) / 60.0));
+        let k = kinds(&mut show, (20..30).map(|i| f64::from(i) / 60.0));
         assert_eq!(k, "T1 T1 T1 T1 T1 T1 T1 T1 T1 T1");
     }
 
     #[test]
     fn one_twenty_hz_alternates_ticks_and_in_betweens() {
         let mut show = Show::new(Options::new(1));
-        kinds(&mut show, (0..40).map(|i| i as f64 / 120.0));
-        let k = kinds(&mut show, (40..48).map(|i| i as f64 / 120.0));
+        kinds(&mut show, (0..40).map(|i| f64::from(i) / 120.0));
+        let k = kinds(&mut show, (40..48).map(|i| f64::from(i) / 120.0));
         assert_eq!(k, "T1 b T1 b T1 b T1 b");
+    }
+
+    #[test]
+    fn a_long_gap_catches_up_a_few_ticks_then_runs_on() {
+        let mut show = Show::new(Options::new(1));
+        kinds(&mut show, (0..20).map(|i| f64::from(i) / 60.0));
+        // A minute asleep: only MAX_CATCH_UP retraces are made up.
+        let k = kinds(&mut show, (0..3).map(|i| 80.0 + f64::from(i) / 60.0));
+        assert_eq!(k, "T4 T1 T1");
+    }
+
+    #[test]
+    fn an_exited_show_stays_on_its_last_picture() {
+        let mut show = Show::new(Options::new(1));
+        kinds(&mut show, (0..20).map(|i| f64::from(i) / 60.0));
+        show.sim_mut().press(ep_core::ids::EXIT);
+        kinds(&mut show, (20..30).map(|i| f64::from(i) / 60.0));
+        assert!(show.sim().exited());
+        let k = kinds(&mut show, (30..34).map(|i| f64::from(i) / 120.0 + 0.25));
+        assert_eq!(k, ". . . .");
     }
 }

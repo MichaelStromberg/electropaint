@@ -41,6 +41,22 @@ struct Snapshot {
 }
 
 fn parse_args() -> Options {
+    match parse(std::env::args().skip(1)) {
+        Ok(Some(opts)) => opts,
+        Ok(None) => {
+            println!("{USAGE}");
+            std::process::exit(0);
+        }
+        Err(msg) => {
+            eprintln!("electropaint: {msg}\n{USAGE}");
+            std::process::exit(2);
+        }
+    }
+}
+
+/// The options `args` asks for, `None` for `--help`, or what is wrong with
+/// them.
+fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Options>, String> {
     let mut opts = Options {
         windowed: false,
         all_displays: false,
@@ -52,27 +68,24 @@ fn parse_args() -> Options {
         snapshot: None,
     };
     let (mut frames, mut size) = (600, (1280, 1024));
-    let mut args = std::env::args().skip(1);
+    let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--windowed" => opts.windowed = true,
             "--all-displays" => opts.all_displays = true,
             "-c" | "--controls" => opts.controls = true,
-            "--panel-snapshot" => opts.panel_snapshot = args.next(),
+            "--panel-snapshot" => {
+                opts.panel_snapshot = Some(args.next().ok_or("--panel-snapshot needs a file")?);
+            }
             "-q" | "--quad" => opts.quad = true,
             "--script" => {
-                let path = args
-                    .next()
-                    .unwrap_or_else(|| usage_error("--script needs a file"));
-                let text = std::fs::read_to_string(&path)
-                    .unwrap_or_else(|e| usage_error(&format!("{path}: {e}")));
+                let path = args.next().ok_or("--script needs a file")?;
+                let text = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
                 opts.script = Some(ep_core::Script::parse(&text));
             }
-            "--seed" => opts.seed = Some(number(args.next(), "--seed")),
+            "--seed" => opts.seed = Some(number(args.next(), "--seed")?),
             "--snapshot" => {
-                let path = args
-                    .next()
-                    .unwrap_or_else(|| usage_error("--snapshot needs a file"));
+                let path = args.next().ok_or("--snapshot needs a file")?;
                 opts.snapshot = Some(Snapshot {
                     path,
                     frames: 0,
@@ -80,26 +93,23 @@ fn parse_args() -> Options {
                     height: 0,
                 });
             }
-            "--frames" => frames = number(args.next(), "--frames"),
+            "--frames" => frames = number(args.next(), "--frames")?,
             "--size" => {
                 let v = args.next().unwrap_or_default();
                 size = v
                     .split_once('x')
                     .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
                     .filter(|&(w, h)| w > 0 && h > 0)
-                    .unwrap_or_else(|| usage_error("--size takes WIDTHxHEIGHT, both above 0"));
+                    .ok_or("--size takes WIDTHxHEIGHT, both above 0")?;
             }
-            "-h" | "--help" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            other => usage_error(&format!("unknown option {other}")),
+            "-h" | "--help" => return Ok(None),
+            other => return Err(format!("unknown option {other}")),
         }
     }
     if let Some(snap) = &mut opts.snapshot {
         (snap.frames, snap.width, snap.height) = (frames, size.0, size.1);
     }
-    opts
+    Ok(Some(opts))
 }
 
 const USAGE: &str = "usage: electropaint [--windowed | --all-displays] [--controls] [--quad] [--script FILE] [--seed N]
@@ -118,15 +128,10 @@ control panel (--controls keeps it up). Esc quits.
 The show steps at the original's 60 Hz; faster displays get in-between
 pictures on the refreshes between steps.";
 
-/// An option's numeric value; a usage error if it is missing or malformed.
-fn number<T: std::str::FromStr>(v: Option<String>, what: &str) -> T {
+/// An option's numeric value, if it has one.
+fn number<T: std::str::FromStr>(v: Option<String>, what: &str) -> Result<T, String> {
     v.and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| usage_error(&format!("{what} needs a number")))
-}
-
-fn usage_error(msg: &str) -> ! {
-    eprintln!("electropaint: {msg}\n{USAGE}");
-    std::process::exit(2);
+        .ok_or_else(|| format!("{what} needs a number"))
 }
 
 /// Runs a show offscreen for `snap.frames` retraces and saves what is displayed.
@@ -475,4 +480,61 @@ fn open_show_windows(
         }
     }
     (windows, panel_show)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parsed(args: &str) -> Result<Option<Options>, String> {
+        parse(args.split_whitespace().map(String::from))
+    }
+
+    fn snapshot(args: &str) -> Option<Snapshot> {
+        parsed(args).ok().flatten().and_then(|o| o.snapshot)
+    }
+
+    #[test]
+    fn snapshot_takes_the_frame_and_size_options_in_any_order() {
+        let s = snapshot("--snapshot a.png").expect("a snapshot");
+        assert_eq!((s.frames, s.width, s.height), (600, 1280, 1024));
+        let s = snapshot("--frames 5 --snapshot a.png --size 64x32").expect("a snapshot");
+        assert_eq!(
+            (s.path.as_str(), s.frames, s.width, s.height),
+            ("a.png", 5, 64, 32)
+        );
+    }
+
+    #[test]
+    fn options_and_values() {
+        let o = parsed("-c --quad --seed -3 --windowed").ok().flatten();
+        let o = o.expect("options");
+        assert!(o.controls && o.quad && o.windowed && !o.all_displays);
+        assert_eq!(o.seed, Some(-3));
+        assert!(o.snapshot.is_none() && o.panel_snapshot.is_none());
+        assert!(matches!(parsed("--help"), Ok(None)));
+    }
+
+    #[test]
+    fn malformed_options_are_errors() {
+        for args in [
+            "--seed",
+            "--seed x",
+            "--frames -1",
+            "--size",
+            "--size 64",
+            "--size 0x5",
+            "--size 5xa",
+            "--snapshot",
+            "--panel-snapshot",
+            "--script",
+            "--fast",
+        ] {
+            assert!(parsed(args).is_err(), "{args} should be refused");
+        }
+        assert_eq!(
+            parsed("--fast").err().as_deref(),
+            Some("unknown option --fast")
+        );
+    }
 }
