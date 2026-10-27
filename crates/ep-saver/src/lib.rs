@@ -28,6 +28,10 @@ struct SaverState {
     link: Option<Retained<CADisplayLink>>,
 }
 
+/// Named so rust-analyzer can read it inside `define_class!`, which it
+/// cannot do for a generic type written in place.
+type SaverIvars = RefCell<Option<SaverState>>;
+
 /// Gives each instance its own seed, like separate ep processes started at
 /// slightly different times.
 static INSTANCES: AtomicI64 = AtomicI64::new(0);
@@ -36,7 +40,7 @@ define_class!(
     #[unsafe(super(ScreenSaverView, NSView))]
     #[thread_kind = MainThreadOnly]
     #[name = "EPSaverView"]
-    #[ivars = RefCell<Option<SaverState>>]
+    #[ivars = SaverIvars]
     struct SaverView;
 
     impl SaverView {

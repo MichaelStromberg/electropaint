@@ -165,13 +165,17 @@ struct ViewState {
     quit_on_input: bool,
 }
 
+/// Named so rust-analyzer can read it inside `define_class!`, which it
+/// cannot do for a generic type written in place.
+type ViewIvars = RefCell<Option<ViewState>>;
+
 define_class!(
     /// A view hosting a `CAMetalLayer` that runs one show, driven by its
     /// display's own display link (so at that display's refresh rate).
     #[unsafe(super(NSView))]
     #[thread_kind = MainThreadOnly]
     #[name = "EPShowView"]
-    #[ivars = RefCell<Option<ViewState>>]
+    #[ivars = ViewIvars]
     struct ShowView;
 
     impl ShowView {
