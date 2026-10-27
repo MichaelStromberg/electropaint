@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 
 use crate::anim::{ActRec, SeqState};
 use crate::colour::{hls_to_rgb, rgb_to_irgb};
-use crate::frame::{Frame, Op};
+use crate::frame::{DrawBuffer, Frame, Op, Projection};
 use crate::gl::{Arg, Gl, IDENTITY, IrisCall};
 use crate::panel::{Actuator, Controls, ID_LIMIT, Kind, ids};
 use crate::rand48::Rand48;
@@ -435,6 +435,12 @@ impl Sim {
         let mut frame = s.gl.take_frame();
         frame.scene = s.scene.take().map(Box::new);
         Some(frame)
+    }
+
+    /// Which buffers drawing goes to and the projection in force: the state
+    /// a renderer that missed frames needs to pick the show up again.
+    pub fn draw_state(&self) -> (DrawBuffer, Option<Projection>) {
+        (self.gl.draw_buffer(), self.gl.projection())
     }
 
     /// Strand slot counter `n` and how many slots are drawn.

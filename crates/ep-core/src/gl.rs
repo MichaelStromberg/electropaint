@@ -147,6 +147,11 @@ impl Gl {
         }
     }
 
+    /// The projection in force, once `perspective` has set one.
+    pub(crate) fn projection(&self) -> Option<Projection> {
+        self.projection
+    }
+
     /// The modelview matrix in force.
     pub(crate) fn modelview(&self) -> &Mat4 {
         self.stack.last().expect("matrix stack is never empty")
@@ -209,7 +214,8 @@ impl Gl {
         });
     }
 
-    fn draw_buffer(&self) -> DrawBuffer {
+    /// Which buffers drawing goes to (`frontbuffer`/`backbuffer`).
+    pub(crate) fn draw_buffer(&self) -> DrawBuffer {
         match (self.front, self.back) {
             (true, true) => DrawBuffer::Both,
             (true, false) => DrawBuffer::Front,

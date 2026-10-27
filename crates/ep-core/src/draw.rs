@@ -310,6 +310,7 @@ impl Sim {
                 if let Some(r) = &mut ribbon {
                     r.edges.push(edge.map(|e| self.gl.eye_point(e)));
                     r.colours.push(self.col_rgba);
+                    r.hues.push(v.hue);
                 }
                 self.gl.v2f(tri[0]);
                 self.gl.v3f(edge[1]);

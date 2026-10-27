@@ -342,10 +342,17 @@ impl ShowView {
         // SAFETY: NSView's designated initialiser, once, on a fresh allocation.
         let view: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
 
-        let surface = Surface::new(style.get()).unwrap_or_else(|e| {
-            eprintln!("electropaint: {e}");
-            std::process::exit(1)
-        });
+        // Remastered falls back to classic, as a switch from the panel does.
+        let surface = Surface::new(style.get())
+            .or_else(|e| {
+                eprintln!("electropaint: {e}");
+                style.set(Style::Classic);
+                Surface::new(Style::Classic)
+            })
+            .unwrap_or_else(|e| {
+                eprintln!("electropaint: {e}");
+                std::process::exit(1)
+            });
         // Layer-hosting view: set the layer before asking for one.
         view.setLayer(Some(surface.layer()));
         view.setWantsLayer(true);

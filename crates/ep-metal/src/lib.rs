@@ -218,6 +218,24 @@ impl Renderer {
         }
     }
 
+    /// Picks a show up again after missing its frames (while another style
+    /// drew): drawing goes to `draw_buffer` with `projection`, as ep left
+    /// them, and the buffers start black again, as after IrisGL's `gconfig`.
+    pub(crate) fn resync(&mut self, draw_buffer: DrawBuffer, projection: Option<Projection>) {
+        self.release();
+        self.front = 0;
+        self.shown = 0;
+        self.draw_buffer = draw_buffer;
+        if let Some(projection) = projection {
+            self.projection = projection;
+        }
+    }
+
+    /// Lets go of the buffers and their memory while another style draws.
+    pub(crate) fn release(&mut self) {
+        self.targets = None;
+    }
+
     /// The size of the buffers, once something has been drawn.
     pub(crate) fn size(&self) -> Option<(usize, usize)> {
         self.targets.as_ref().map(|t| (t.width, t.height))
@@ -228,9 +246,8 @@ impl Renderer {
         self.queue.commandBuffer()
     }
 
-    /// Copies the buffer to show into `dest` with its left edge at `x`.
-    /// `dest` must be at least as tall as the buffers and extend `size()`'s
-    /// width past `x`.
+    /// Copies the buffer to show into `dest` with its left edge at `x`, if it
+    /// fits there.
     pub(crate) fn blit_into(
         &self,
         blit: &ProtocolObject<dyn MTLBlitCommandEncoder>,
@@ -241,12 +258,9 @@ impl Renderer {
             return;
         };
         let (width, height) = (targets.width, targets.height);
-        assert!(
-            x + width <= dest.width() && height <= dest.height(),
-            "blit_into: {width}x{height} at {x} is outside {}x{}",
-            dest.width(),
-            dest.height()
-        );
+        if x + width > dest.width() || height > dest.height() {
+            return;
+        }
         // SAFETY: the region lies inside both textures (checked above), which
         // share a pixel format (`configure_layer`); the command buffer
         // retains both until it completes.
@@ -707,5 +721,48 @@ impl Pipelines {
             depth_off: depth(MTLCompareFunction::Always, false)?,
             depth_overwrite: depth(MTLCompareFunction::Always, true)?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ep_core::{Options, Sim, ids};
+
+    use super::*;
+
+    /// A renderer that missed frames (while another style drew) draws the
+    /// same as one that saw them all once both pick the show up again:
+    /// nothing of what either drew before carries over.
+    #[test]
+    fn resync_follows_ep_and_forgets_the_missed_frames() -> Result<(), RendererError> {
+        let (w, h) = (64, 48);
+        let mut sim = Sim::new(Options::new(3));
+        let (mut seen, mut missed) = (Renderer::system_default()?, Renderer::system_default()?);
+        for tick in 0..40 {
+            // Smear switches the draw buffer to both, which `missed` never sees.
+            if tick == 20 {
+                sim.press(ids::SMEAR);
+            }
+            let frame = sim.tick();
+            seen.draw(w, h, std::slice::from_ref(&frame));
+            if tick < 10 {
+                missed.draw(w, h, std::slice::from_ref(&frame));
+            }
+        }
+        let (draw_buffer, projection) = sim.draw_state();
+        assert_eq!(draw_buffer, DrawBuffer::Both);
+        seen.resync(draw_buffer, projection);
+        missed.resync(draw_buffer, projection);
+        let frames: Vec<_> = (0..10).map(|_| sim.tick()).collect();
+        let picture = missed.render_offscreen(w, h, &frames)?;
+        assert_eq!(seen.render_offscreen(w, h, &frames)?, picture);
+        // Smear draws into both buffers, so the one behind holds the same
+        // picture; drawing into the back one alone would leave them apart.
+        let swap = Frame {
+            ops: vec![Op::Swap],
+            ..Frame::default()
+        };
+        assert_eq!(missed.render_offscreen(w, h, &[swap])?, picture);
+        Ok(())
     }
 }

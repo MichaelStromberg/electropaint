@@ -1,10 +1,11 @@
 // electropaint Remastered: ep's strand as polished, iridescent metal tiles
 // in a studio of soft lights, in high dynamic range.
 //
-// Passes: the strand (tiles or ribbons, 4x MSAA) into a layer with
-// transparent background; the layer over the decayed trail (smear);
-// a bloom chain from the bright parts; and the final picture: a dark
-// backdrop, the strand, the bloom, tone mapped to the display's headroom.
+// Passes: the smearing strands (tiles or ribbons, 4x MSAA) into a layer
+// with transparent background, and that over their decayed trail; the other
+// strands into the layer, with the trail merged under them; a bloom chain
+// from the bright parts; and the final picture: a dark backdrop, the
+// strands, the bloom, tone mapped to the display's headroom.
 
 #include <metal_stdlib>
 using namespace metal;
@@ -240,6 +241,12 @@ fragment float4 accumulate_fragment(Screen in [[stage_in]], float4 trail [[color
                                     constant Post &post [[buffer(0)]]) {
     float4 l = layer.read(uint2(in.position.xy));
     return l + trail * post.decay * (1.0 - l.a);
+}
+
+// The trail of the smearing strands under the other strands' layer.
+fragment float4 merge_fragment(Screen in [[stage_in]], float4 layer [[color(0)]],
+                               texture2d<float> trail [[texture(0)]]) {
+    return layer + trail.read(uint2(in.position.xy)) * (1.0 - layer.a);
 }
 
 // Half the size of the source; the first level keeps only what is bright.

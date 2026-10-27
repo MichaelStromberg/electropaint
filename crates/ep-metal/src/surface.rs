@@ -56,6 +56,9 @@ pub struct Surface {
     layer: Retained<CAMetalLayer>,
     /// How far above SDR white the display can show (1 without EDR).
     headroom: f64,
+    /// The classic renderers missed frames while another style drew, and
+    /// must pick the shows up again.
+    resync: bool,
 }
 
 impl Surface {
@@ -68,6 +71,7 @@ impl Surface {
             remastered: None,
             layer: CAMetalLayer::new(),
             headroom: 1.0,
+            resync: false,
         };
         surface.prepare(style)?;
         Ok(surface)
@@ -81,6 +85,12 @@ impl Surface {
     pub fn set_style(&mut self, style: Style) -> Result<(), RendererError> {
         if style != self.style {
             self.prepare(style)?;
+            // The style left behind frees its buffers.
+            match self.style {
+                Style::Classic => self.renderers.iter_mut().for_each(Renderer::release),
+                Style::Remastered => self.remastered.iter_mut().for_each(Remastered::release),
+            }
+            self.resync = style == Style::Classic;
             self.style = style;
         }
         Ok(())
@@ -123,7 +133,10 @@ impl Surface {
     /// Keeps the drawable at `points` (the view's size) times `scale`, in
     /// device pixels.
     pub fn fit(&self, points: NSSize, scale: f64) {
-        let size = NSSize::new(points.width * scale, points.height * scale);
+        let size = NSSize::new(
+            (points.width * scale).round(),
+            (points.height * scale).round(),
+        );
         if self.layer.drawableSize() != size {
             self.layer.setContentsScale(scale);
             self.layer.setDrawableSize(size);
@@ -144,11 +157,19 @@ impl Surface {
         }
         let size = self.layer.drawableSize();
         let (width, height) = (size.width as usize, size.height as usize);
-        let shows: Vec<&mut Show> = shows.into_iter().collect();
+        // No more strands than pixels across (until the drawable has a size).
+        let most = if width == 0 { usize::MAX } else { width };
+        let shows: Vec<&mut Show> = shows.into_iter().take(most).collect();
         let count = shows.len().max(1);
         while self.renderers.len() < count {
             let sibling = self.renderers[0].sibling();
             self.renderers.push(sibling);
+        }
+        if std::mem::take(&mut self.resync) {
+            for (show, renderer) in shows.iter().zip(&mut self.renderers) {
+                let (draw_buffer, projection) = show.sim().draw_state();
+                renderer.resync(draw_buffer, projection);
+            }
         }
         let mut changed = false;
         for (index, (show, renderer)) in shows.into_iter().zip(&mut self.renderers).enumerate() {

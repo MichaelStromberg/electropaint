@@ -12,7 +12,7 @@ use std::ffi::c_void;
 use std::ptr::NonNull;
 
 use ep_core::Frame;
-use ep_core::scene::{Scene, Shape};
+use ep_core::scene::{Scene, Shape, Tile};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_core_foundation::CFRetained;
@@ -135,6 +135,8 @@ struct Pipelines {
     tile: Retained<Pipeline>,
     ribbon: Retained<Pipeline>,
     accumulate: Retained<Pipeline>,
+    /// The trail under the layer, in place.
+    merge: Retained<Pipeline>,
     bloom_down: Retained<Pipeline>,
     bloom_up: Retained<Pipeline>,
     /// The final pass, into a floating-point drawable or an 8-bit snapshot.
@@ -169,8 +171,8 @@ pub struct Remastered {
     targets: Option<Targets>,
     /// Each strand's latest scene.
     scenes: Vec<Option<Box<Scene>>>,
-    instances: Vec<Instance>,
-    ribbons: Vec<RibbonVertex>,
+    /// The background of the last picture drawn (linear).
+    background: [f32; 4],
 }
 
 impl Remastered {
@@ -196,9 +198,15 @@ impl Remastered {
             pipelines,
             targets: None,
             scenes: Vec::new(),
-            instances: Vec::new(),
-            ribbons: Vec::new(),
+            background: [0.0; 4],
         })
+    }
+
+    /// Lets go of the picture and its memory while another style draws; the
+    /// next picture starts afresh.
+    pub(crate) fn release(&mut self) {
+        self.targets = None;
+        self.scenes.clear();
     }
 
     /// Configures a layer for this renderer: floating point, linear,
@@ -259,8 +267,8 @@ impl Remastered {
         let Some(cb) = self.queue.commandBuffer() else {
             return;
         };
-        let smear = self.encode_step(&cb, steps);
-        self.encode_output(&cb, &drawable.texture(), smear, false, headroom as f32);
+        self.encode_step(&cb, steps);
+        self.encode_output(&cb, &drawable.texture(), false, headroom as f32);
         let drawable: &ProtocolObject<dyn MTLDrawable> = ProtocolObject::from_ref(&*drawable);
         cb.presentDrawable(drawable);
         cb.commit();
@@ -286,6 +294,9 @@ impl Remastered {
         if !self.fit(width, height) {
             return Err(RendererError::Create("render targets"));
         }
+        if let Some(t) = &mut self.targets {
+            t.trail_fresh = true;
+        }
         self.scenes = vec![None; strands.len()];
         let steps = strands.iter().map(Vec::len).max().unwrap_or(0);
         let first = steps.saturating_sub(SNAPSHOT_TRAIL);
@@ -308,7 +319,7 @@ impl Remastered {
             .queue
             .commandBuffer()
             .ok_or(RendererError::Create("command buffer"))?;
-        let smear = self.encode_step(&cb, 1);
+        self.encode_step(&cb, 1);
         let target = texture(
             &self.device,
             SNAPSHOT_FORMAT,
@@ -318,7 +329,7 @@ impl Remastered {
             MTLStorageMode::Private,
         )
         .ok_or(RendererError::Create("snapshot target"))?;
-        self.encode_output(&cb, &target, smear, true, 1.0);
+        self.encode_output(&cb, &target, true, 1.0);
         read_back(&self.device, &cb, &target)
     }
 
@@ -336,34 +347,31 @@ impl Remastered {
         self.targets.is_some()
     }
 
-    /// Draws the strands' current scenes into the layer and, when smearing,
-    /// over what `steps` steps leave of the trail. Returns whether the
-    /// picture is the trail.
-    fn encode_step(&mut self, cb: &CommandBuffer, steps: usize) -> bool {
+    /// Draws the strands' current scenes into the layer. Strands that smear
+    /// are drawn first, over what `steps` steps leave of their trail, and the
+    /// trail goes under the others.
+    fn encode_step(&mut self, cb: &CommandBuffer, steps: usize) {
         let Some((width, height)) = self.targets.as_ref().map(|t| (t.width, t.height)) else {
-            return false;
+            return;
         };
         let aspect = width as f32 / height as f32;
-        let (background, smear, fade, squares) = self.gather(aspect);
+        let gathered = gather(&self.scenes, aspect);
+        self.background = gathered.background;
         let view = View {
             proj: perspective(aspect),
-            background,
+            background: gathered.background,
         };
-        let instances = upload(&self.device, &self.instances);
-        let ribbons = upload(&self.device, &self.ribbons);
+        let instances = upload(&self.device, &gathered.instances);
+        let ribbons = upload(&self.device, &gathered.ribbons);
+        let buffers = (instances.as_deref(), ribbons.as_deref());
         let Some(t) = &self.targets else {
-            return false;
+            return;
         };
-        self.encode_strand(
-            cb,
-            t,
-            &view,
-            instances.as_deref(),
-            squares,
-            ribbons.as_deref(),
-        );
-        if smear {
-            let keep = if fade { FADE_KEEP } else { SMEAR_KEEP };
+        let [smearing, still] = gathered.groups;
+        let trail = !smearing.is_empty();
+        if trail {
+            self.encode_strand(cb, t, &view, smearing, buffers);
+            let keep = if gathered.fade { FADE_KEEP } else { SMEAR_KEEP };
             let post = Post {
                 decay: if t.trail_fresh {
                     0.0
@@ -382,75 +390,27 @@ impl Remastered {
                 enc.endEncoding();
             }
         }
+        self.encode_strand(cb, t, &view, still, buffers);
+        if trail && let Some(enc) = encoder(cb, &t.layer, MTLLoadAction::Load) {
+            fullscreen(&enc, &self.pipelines.merge, &[&t.trail], &Post::default());
+            enc.endEncoding();
+        }
         if let Some(t) = &mut self.targets {
-            t.trail_fresh = !smear;
+            t.trail_fresh = !trail;
         }
-        smear
     }
 
-    /// The strands' tiles and ribbons, each strand moved sideways to the
-    /// middle of its share of the view. Returns the background, whether to
-    /// smear and fade, and how many of the instances (the first) are squares.
-    fn gather(&mut self, aspect: f32) -> ([f32; 4], bool, bool, usize) {
-        self.instances.clear();
-        self.ribbons.clear();
-        let mut triangles = Vec::new();
-        let count = self.scenes.len().max(1);
-        let half_width = DISTANCE * HALF_FOVY.tan() * aspect;
-        let (mut smear, mut fade) = (false, false);
-        let mut background = [0.0; 4];
-        for (index, scene) in self.scenes.iter().enumerate() {
-            let Some(scene) = scene else { continue };
-            let dx = ((2 * index + 1) as f32 / count as f32 - 1.0) * half_width;
-            smear |= scene.smear;
-            fade |= scene.smear && scene.fade;
-            if index == count / 2 {
-                background = linear(scene.background);
-            }
-            for tile in &scene.tiles {
-                let mut model_view = tile.model_view;
-                for column in model_view.as_chunks_mut::<4>().0 {
-                    column[0] += dx * column[3];
-                }
-                let flags = [
-                    (tile.fill.is_some(), FILL),
-                    (tile.outline.is_some(), OUTLINE),
-                    (tile.fat, FAT),
-                ]
-                .iter()
-                .filter(|(on, _)| *on)
-                .fold(0, |flags, (_, bit)| flags | bit);
-                let instance = Instance {
-                    model_view,
-                    fill: linear(tile.fill.unwrap_or_default()),
-                    outline: linear(tile.outline.unwrap_or_default()),
-                    hue: tile.hue,
-                    flags,
-                    pad: [0.0; 2],
-                };
-                match tile.shape {
-                    Shape::Square => self.instances.push(instance),
-                    Shape::Triangle => triangles.push(instance),
-                }
-            }
-            for ribbon in &scene.ribbons {
-                ribbon_strip(&mut self.ribbons, ribbon, dx);
-            }
-        }
-        let squares = self.instances.len();
-        self.instances.append(&mut triangles);
-        (background, smear, fade, squares)
-    }
-
+    /// Draws `group` of the instances and ribbon vertices in `buffers` into
+    /// the layer, which starts transparent.
     fn encode_strand(
         &self,
         cb: &CommandBuffer,
         t: &Targets,
         view: &View,
-        instances: Option<&Buffer>,
-        squares: usize,
-        ribbons: Option<&Buffer>,
+        group: Group,
+        buffers: (Option<&Buffer>, Option<&Buffer>),
     ) {
+        let (instances, ribbons) = buffers;
         let pass = MTLRenderPassDescriptor::new();
         // SAFETY: attachment 0 always exists (Metal supports at least eight).
         let att = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
@@ -476,16 +436,15 @@ impl Remastered {
         set_bytes(&enc, view, 2, 0);
         if let Some(instances) = instances {
             enc.setRenderPipelineState(&self.pipelines.tile);
-            let total = self.instances.len();
             for (mesh, first, n) in [
-                (&self.square, 0, squares),
-                (&self.triangle, squares, total - squares),
+                (&self.square, group.first, group.squares),
+                (&self.triangle, group.first + group.squares, group.triangles),
             ] {
                 if n == 0 {
                     continue;
                 }
                 // SAFETY: the mesh holds `mesh.count` vertices and the instance
-                // buffer `total` instances, of which these are `first..first + n`.
+                // buffer holds instances `first..first + n` (`gather`).
                 unsafe {
                     enc.setVertexBuffer_offset_atIndex(Some(&mesh.buffer), 0, 0);
                     enc.setVertexBuffer_offset_atIndex(
@@ -502,16 +461,18 @@ impl Remastered {
                 }
             }
         }
-        if let Some(ribbons) = ribbons {
+        if let Some(ribbons) = ribbons
+            && group.ribbon_count > 0
+        {
             enc.setRenderPipelineState(&self.pipelines.ribbon);
-            // SAFETY: the buffer holds `self.ribbons.len()` vertices, whole
-            // triangles.
+            // SAFETY: the buffer holds vertices `ribbon_first..ribbon_first +
+            // ribbon_count`, whole triangles (`gather`).
             unsafe {
                 enc.setVertexBuffer_offset_atIndex(Some(ribbons), 0, 0);
                 enc.drawPrimitives_vertexStart_vertexCount(
                     MTLPrimitiveType::Triangle,
-                    0,
-                    self.ribbons.len(),
+                    group.ribbon_first,
+                    group.ribbon_count,
                 );
             }
         }
@@ -519,23 +480,12 @@ impl Remastered {
     }
 
     /// Bloom and the final picture into `target`.
-    fn encode_output(
-        &self,
-        cb: &CommandBuffer,
-        target: &Texture,
-        smear: bool,
-        srgb: bool,
-        headroom: f32,
-    ) {
+    fn encode_output(&self, cb: &CommandBuffer, target: &Texture, srgb: bool, headroom: f32) {
         let Some(t) = &self.targets else {
             return;
         };
-        let strand = if smear { &t.trail } else { &t.layer };
-        let background = self
-            .scenes
-            .get(self.scenes.len() / 2)
-            .and_then(|s| s.as_ref())
-            .map_or([0.0; 4], |s| linear(s.background));
+        let strand = &t.layer;
+        let background = self.background;
         let texel = |tex: &Texture| [1.0 / tex.width() as f32, 1.0 / tex.height() as f32];
 
         let mut source: &Texture = strand;
@@ -580,6 +530,105 @@ impl Remastered {
             fullscreen(&enc, pipeline, &[strand, &t.bloom[0]], &post);
             enc.endEncoding();
         }
+    }
+}
+
+/// A run of the gathered instances and ribbon vertices: squares, then
+/// triangles, from `first`; ribbon vertices from `ribbon_first`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Group {
+    first: usize,
+    squares: usize,
+    triangles: usize,
+    ribbon_first: usize,
+    ribbon_count: usize,
+}
+
+impl Group {
+    fn is_empty(&self) -> bool {
+        self.squares + self.triangles + self.ribbon_count == 0
+    }
+}
+
+/// The strands' scenes, ready for the GPU.
+#[derive(Default)]
+struct Gathered {
+    instances: Vec<Instance>,
+    ribbons: Vec<RibbonVertex>,
+    /// The strands that smear, and the others.
+    groups: [Group; 2],
+    /// The middle strand's background (linear), or the first one's there is.
+    background: [f32; 4],
+    /// Whether the smearing strands fade.
+    fade: bool,
+}
+
+/// The tiles and ribbons of `scenes` (one per strand, left to right), each
+/// strand moved sideways to the middle of its share of an `aspect`-wide view.
+fn gather(scenes: &[Option<Box<Scene>>], aspect: f32) -> Gathered {
+    let mut out = Gathered::default();
+    let count = scenes.len().max(1);
+    let half_width = DISTANCE * HALF_FOVY.tan() * aspect;
+    let offset =
+        |index: usize| ((2 * index + 1) as f32 / count as f32).mul_add(half_width, -half_width);
+    out.background = scenes
+        .get(count / 2)
+        .and_then(Option::as_deref)
+        .or_else(|| scenes.iter().find_map(Option::as_deref))
+        .map_or([0.0; 4], |s| linear(s.background));
+    for (group, smearing) in out.groups.iter_mut().zip([true, false]) {
+        let strands = || {
+            scenes
+                .iter()
+                .enumerate()
+                .filter_map(|(i, s)| Some((offset(i), s.as_deref()?)))
+                .filter(move |(_, s)| s.smear == smearing)
+        };
+        group.first = out.instances.len();
+        for (shape, n) in [
+            (Shape::Square, &mut group.squares),
+            (Shape::Triangle, &mut group.triangles),
+        ] {
+            let before = out.instances.len();
+            for (dx, scene) in strands() {
+                let tiles = scene.tiles.iter().filter(|t| t.shape == shape);
+                out.instances.extend(tiles.map(|t| instance(t, dx)));
+            }
+            *n = out.instances.len() - before;
+        }
+        group.ribbon_first = out.ribbons.len();
+        for (dx, scene) in strands() {
+            out.fade |= smearing && scene.fade;
+            for ribbon in &scene.ribbons {
+                ribbon_strip(&mut out.ribbons, ribbon, dx);
+            }
+        }
+        group.ribbon_count = out.ribbons.len() - group.ribbon_first;
+    }
+    out
+}
+
+/// A tile as the shaders take it, moved `dx` sideways in eye space.
+fn instance(tile: &Tile, dx: f32) -> Instance {
+    let mut model_view = tile.model_view;
+    for column in model_view.as_chunks_mut::<4>().0 {
+        column[0] = dx.mul_add(column[3], column[0]);
+    }
+    let flags = [
+        (tile.fill.is_some(), FILL),
+        (tile.outline.is_some(), OUTLINE),
+        (tile.fat, FAT),
+    ]
+    .iter()
+    .filter(|(on, _)| *on)
+    .fold(0, |flags, (_, bit)| flags | bit);
+    Instance {
+        model_view,
+        fill: linear(tile.fill.unwrap_or_default()),
+        outline: linear(tile.outline.unwrap_or_default()),
+        hue: tile.hue,
+        flags,
+        pad: [0.0; 2],
     }
 }
 
@@ -694,7 +743,9 @@ fn linear(c: [f32; 4]) -> [f32; 4] {
 /// Metal's [0, 1] depth, column-major.
 fn perspective(aspect: f32) -> [[f32; 4]; 4] {
     let f = 1.0 / HALF_FOVY.tan();
-    let (n, far) = (1.0, 40.0);
+    // ep's camera is 10 units from the strand, which can reach far beyond
+    // that either way.
+    let (n, far) = (0.05, 1e4);
     [
         [f / aspect, 0.0, 0.0, 0.0],
         [0.0, f, 0.0, 0.0],
@@ -707,7 +758,6 @@ fn perspective(aspect: f32) -> [[f32; 4]; 4] {
 /// slots, flat shaded in the newer slot's colour.
 fn ribbon_strip(out: &mut Vec<RibbonVertex>, ribbon: &ep_core::scene::Ribbon, dx: f32) {
     let moved = |p: [f32; 3]| [p[0] + dx, p[1], p[2], 1.0];
-    let len = ribbon.edges.len();
     for (k, pair) in ribbon.edges.windows(2).enumerate() {
         let [newer, newer_far] = pair[0];
         let [older, older_far] = pair[1];
@@ -716,7 +766,7 @@ fn ribbon_strip(out: &mut Vec<RibbonVertex>, ribbon: &ep_core::scene::Ribbon, dx
         if norm < 1e-9 {
             continue;
         }
-        let hue = k as f32 / len as f32;
+        let hue = ribbon.hues.get(k).copied().unwrap_or(0.0);
         let normal = [across[0] / norm, across[1] / norm, across[2] / norm, hue];
         let colour = linear(ribbon.colours[k]);
         for p in [newer, newer_far, older_far, newer, older_far, older] {
@@ -979,6 +1029,7 @@ impl Pipelines {
                 false,
             )?,
             accumulate: pipeline("screen_vertex", "accumulate_fragment", HDR_FORMAT, 1, false)?,
+            merge: pipeline("screen_vertex", "merge_fragment", HDR_FORMAT, 1, false)?,
             bloom_down: pipeline("screen_vertex", "bloom_down_fragment", HDR_FORMAT, 1, false)?,
             bloom_up: pipeline("screen_vertex", "bloom_up_fragment", HDR_FORMAT, 1, true)?,
             output: pipeline("screen_vertex", "final_fragment", HDR_FORMAT, 1, false)?,
