@@ -10,7 +10,7 @@ use objc2::rc::Retained;
 use objc2::{DefinedClass, MainThreadMarker};
 use objc2_app_kit::{
     NSApplication, NSBox, NSButton, NSColor, NSControl, NSControlStateValueOff,
-    NSControlStateValueOn, NSGridView, NSSegmentedControl, NSTextField,
+    NSControlStateValueOn, NSGridView, NSSegmentedControl, NSTextField, NSView,
 };
 use objc2_foundation::NSString;
 
@@ -72,24 +72,8 @@ impl ChanRows {
 
 impl PanelController {
     pub(super) fn on_change(&self, index: usize) {
-        // Take what's needed and let go of the borrow: acting on it may run
-        // the run loop, and with it the show and this panel's refresh.
-        let (bind, view) = {
-            let controls = self.ivars().controls.borrow();
-            let Some(c) = controls.get(index) else { return };
-            c.edited.set(Some(Instant::now()));
-            // The user moved it: show the simulation's value again afterwards
-            // even if that hasn't changed.
-            c.shown.set(None);
-            if matches!(c.bind, Bind::Press(_)) {
-                // A press can change controls nobody touched: AppKit turns
-                // off the other radios of a group itself, and a reset moves
-                // many sliders. Show them all afresh.
-                for other in controls.iter() {
-                    other.shown.set(None);
-                }
-            }
-            (c.bind, c.view.clone())
+        let Some((bind, view)) = self.note_edit(index) else {
+            return;
         };
         if matches!(bind, Bind::Page) {
             // The panel's own state. The switch animates the window's
@@ -100,7 +84,32 @@ impl PanelController {
             return;
         }
         let mut show = self.ivars().show.borrow_mut();
-        let sim = show.sim_mut();
+        self.send(show.sim_mut(), bind, &view);
+    }
+
+    /// Records that the user moved control `index` and returns what acting on
+    /// it needs, letting go of the borrow: acting may run the run loop, and
+    /// with it the show and this panel's refresh.
+    fn note_edit(&self, index: usize) -> Option<(Bind, Retained<NSView>)> {
+        let controls = self.ivars().controls.borrow();
+        let c = controls.get(index)?;
+        c.edited.set(Some(Instant::now()));
+        // Show the simulation's value again afterwards even if that hasn't
+        // changed.
+        c.shown.set(None);
+        if matches!(c.bind, Bind::Press(_)) {
+            // A press can change controls nobody touched: AppKit turns off
+            // the other radios of a group itself, and a reset moves many
+            // sliders. Show them all afresh.
+            for other in controls.iter() {
+                other.shown.set(None);
+            }
+        }
+        Some((c.bind, c.view.clone()))
+    }
+
+    /// Sends the input of control `view`, bound by `bind`, to the simulation.
+    fn send(&self, sim: &mut Sim, bind: Bind, view: &NSView) {
         match bind {
             Bind::Value(id) => {
                 if let Some(s) = view.downcast_ref::<NSControl>() {
@@ -213,37 +222,51 @@ impl PanelController {
 /// Sets control `c` to show `state`, as computed by `state_of`.
 fn show_control(c: &Control, state: [f32; 2]) {
     let [a, b] = state;
+    let view = &*c.view;
     match c.bind {
-        Bind::Value(_) | Bind::Puck(_) => {
-            if let (Some(s), false) = (c.view.downcast_ref::<NSControl>(), a.is_nan()) {
-                s.setDoubleValue(f64::from(a));
-            }
-        }
+        Bind::Value(_) | Bind::Puck(_) => show_number(view, a),
         Bind::Press(_) => {
-            if let Some(button) = c.view.downcast_ref::<NSButton>() {
+            if let Some(button) = view.downcast_ref::<NSButton>() {
                 show_on(button, a != 0.0, c.tinted);
             }
         }
-        Bind::Readout(_) => {
-            if let (Some(t), false) = (c.view.downcast_ref::<NSTextField>(), a.is_nan()) {
-                t.setStringValue(&NSString::from_str(&format!("{a:.3}")));
-            }
-        }
+        Bind::Readout(_) => show_text(view, a),
         Bind::Swatch(_) => {
-            if let Some(swatch) = c.view.downcast_ref::<NSBox>() {
-                let hue = if a.is_nan() { 0.0 } else { a };
-                let light = if b.is_nan() { 0.5 } else { b };
-                swatch.setFillColor(&swatch_colour(hue, light));
+            if let Some(swatch) = view.downcast_ref::<NSBox>() {
+                swatch.setFillColor(&swatch_colour(nan_or(a, 0.0), nan_or(b, 0.5)));
             }
         }
         Bind::ChanMode => {
-            if let Some(s) = c.view.downcast_ref::<NSSegmentedControl>() {
+            if let Some(s) = view.downcast_ref::<NSSegmentedControl>() {
                 // Hue mode shows segment 0, lightness segment 1.
                 s.setSelectedSegment(isize::from(a == 0.0));
             }
         }
         Bind::PuckCentre | Bind::Page => {}
     }
+}
+
+/// A slider's value, unless the simulation has none (NaN).
+fn show_number(view: &NSView, v: f32) {
+    if let Some(s) = view.downcast_ref::<NSControl>()
+        && !v.is_nan()
+    {
+        s.setDoubleValue(f64::from(v));
+    }
+}
+
+/// A readout's text, unless the simulation has no value (NaN).
+fn show_text(view: &NSView, v: f32) {
+    if let Some(t) = view.downcast_ref::<NSTextField>()
+        && !v.is_nan()
+    {
+        t.setStringValue(&NSString::from_str(&format!("{v:.3}")));
+    }
+}
+
+/// `v`, or `default` for a missing value (NaN).
+fn nan_or(v: f32, default: f32) -> f32 {
+    if v.is_nan() { default } else { v }
 }
 
 /// A toggle's state; a `tinted` symbol button also takes the accent colour
