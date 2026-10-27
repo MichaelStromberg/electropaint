@@ -215,6 +215,15 @@ define_class!(
         fn can_become_key_window(&self) -> bool {
             true
         }
+
+        /// Closing the show (only `--windowed` has a close button) quits:
+        /// with no window and no menu bar there would be no way left to.
+        #[unsafe(method(close))]
+        fn close(&self) {
+            // SAFETY: NSWindow's own `close`, which overrides must call.
+            let _: () = unsafe { msg_send![super(self), close] };
+            NSApplication::sharedApplication(MainThreadMarker::from(self)).terminate(None);
+        }
     }
 );
 
