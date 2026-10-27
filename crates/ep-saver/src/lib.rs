@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 use ep_core::Options;
 use ep_metal::show::Show;
-use ep_metal::surface::{Style, Surface, auto_strands};
+use ep_metal::surface::{Style, Surface};
 use objc2::rc::{Allocated, Retained};
 use objc2::runtime::{AnyObject, Bool};
 use objc2::{ClassType, DefinedClass, MainThreadOnly, define_class, msg_send, sel};
@@ -153,14 +153,11 @@ impl SaverView {
         self.setWantsLayer(true);
 
         let size = self.bounds().size;
-        let strands = match STYLE {
-            Style::Classic => 1,
-            Style::Remastered => auto_strands(size.width, size.height),
-        };
-        let first = INSTANCES.fetch_add(strands as i64, Ordering::Relaxed);
+        let strands = STYLE.strands().count(size.width, size.height);
+        let first = Options::clock_seed() + INSTANCES.fetch_add(strands as i64, Ordering::Relaxed);
         let shows = (0..strands)
             .map(|i| {
-                let mut opts = Options::new(Options::clock_seed() + first + i as i64).saver();
+                let mut opts = Options::new(first + i as i64).saver();
                 opts.scene = STYLE == Style::Remastered;
                 Show::new(opts)
             })
@@ -187,11 +184,10 @@ impl SaverView {
         let Some(st) = state.as_mut() else { return };
         let window = self.window();
         let scale = window.as_ref().map_or(1.0, |w| w.backingScaleFactor());
-        st.surface.fit(self.bounds().size, scale);
         let headroom = window
             .and_then(|w| w.screen())
             .map_or(1.0, |s| s.maximumExtendedDynamicRangeColorComponentValue());
-        st.surface.set_headroom(headroom);
+        st.surface.fit(self.bounds().size, scale, headroom);
         st.surface.render(&mut st.shows, time);
     }
 }

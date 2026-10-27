@@ -8,9 +8,6 @@
 //! simulation decides where every tile goes. The shaders are in
 //! `remastered.metal`.
 
-use std::ffi::c_void;
-use std::ptr::NonNull;
-
 use ep_core::Frame;
 use ep_core::scene::{Scene, Shape, Tile};
 use objc2::rc::Retained;
@@ -19,17 +16,22 @@ use objc2_core_foundation::CFRetained;
 use objc2_core_graphics::{CGColorSpace, kCGColorSpaceExtendedLinearSRGB};
 use objc2_foundation::NSString;
 use objc2_metal::{
-    MTLBlendFactor, MTLBlitCommandEncoder, MTLBuffer, MTLClearColor, MTLCommandBuffer,
-    MTLCommandEncoder, MTLCommandQueue, MTLCompareFunction, MTLCreateSystemDefaultDevice,
-    MTLDepthStencilDescriptor, MTLDevice, MTLDrawable, MTLLibrary, MTLLoadAction, MTLOrigin,
-    MTLPixelFormat, MTLPrimitiveType, MTLRenderCommandEncoder, MTLRenderPassDescriptor,
-    MTLRenderPipelineDescriptor, MTLResourceOptions, MTLSize, MTLStorageMode, MTLStoreAction,
-    MTLTexture, MTLTextureDescriptor, MTLTextureType, MTLTextureUsage,
+    MTLBlendFactor, MTLClearColor, MTLCommandBuffer, MTLCommandEncoder, MTLCommandQueue,
+    MTLCompareFunction, MTLCreateSystemDefaultDevice, MTLDepthStencilDescriptor, MTLDevice,
+    MTLDrawable, MTLLibrary, MTLLoadAction, MTLPixelFormat, MTLPrimitiveType,
+    MTLRenderCommandEncoder, MTLRenderPassDescriptor, MTLRenderPipelineDescriptor, MTLStorageMode,
+    MTLStoreAction, MTLTexture,
 };
 use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
 
+mod mesh;
+
+use mesh::{RibbonVertex, ribbon_strip, slab};
+
+use crate::gpu::{check_size, fits, read_back, set_bytes, texture, upload};
 use crate::show::{Picture, Show};
-use crate::{DepthState, Device, Encoder, MAX_SIDE, Pipeline, RendererError, Texture};
+use crate::surface::main_strand;
+use crate::{Buffer, CommandBuffer, DepthState, Device, Encoder, Pipeline, RendererError, Texture};
 
 const SAMPLES: usize = 4;
 const HDR_FORMAT: MTLPixelFormat = MTLPixelFormat::RGBA16Float;
@@ -55,30 +57,12 @@ const BLOOM_LEVELS: usize = 6;
 const THRESHOLD: f32 = 1.0;
 const BLOOM: f32 = 0.12;
 
-/// The slab: its edge radius (half its thickness), the radius of its
-/// corners seen from the front, and how many segments make each curve.
-const EDGE_RADIUS: f32 = 0.007;
-const CORNER_RADIUS: f32 = 0.018;
-const CORNER_SEGMENTS: usize = 4;
-const EDGE_SEGMENTS: usize = 4;
-/// How far a face's normals lean out at its edge (the tangent of the angle).
-const DOME: f32 = 0.35;
-
 /// Per-pass constants; layout matches `View` in remastered.metal.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct View {
     proj: [[f32; 4]; 4],
     background: [f32; 4],
-}
-
-/// Layout matches `MeshVertex` in remastered.metal.
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct MeshVertex {
-    /// Model space; w is how near the rim (0 at the centre, 1 at the edge).
-    pos: [f32; 4],
-    normal: [f32; 4],
 }
 
 /// One tile; layout matches `Instance` in remastered.metal.
@@ -97,16 +81,6 @@ const FILL: u32 = 1;
 const OUTLINE: u32 = 2;
 const FAT: u32 = 4;
 
-/// Layout matches `RibbonVertex` in remastered.metal.
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct RibbonVertex {
-    pos: [f32; 4],
-    /// w is the hue the film thickness follows.
-    normal: [f32; 4],
-    colour: [f32; 4],
-}
-
 /// Post-processing constants; layout matches `Post` in remastered.metal.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -122,9 +96,6 @@ struct Post {
     srgb: u32,
     pad: [u32; 3],
 }
-
-type Buffer = ProtocolObject<dyn MTLBuffer>;
-type CommandBuffer = ProtocolObject<dyn MTLCommandBuffer>;
 
 struct Mesh {
     buffer: Retained<Buffer>,
@@ -288,9 +259,7 @@ impl Remastered {
         height: usize,
         strands: &[Vec<Frame>],
     ) -> Result<Vec<u8>, RendererError> {
-        if !(1..=MAX_SIDE).contains(&width) || !(1..=MAX_SIDE).contains(&height) {
-            return Err(RendererError::Size { width, height });
-        }
+        check_size(width, height)?;
         if !self.fit(width, height) {
             return Err(RendererError::Create("render targets"));
         }
@@ -572,7 +541,7 @@ fn gather(scenes: &[Option<Box<Scene>>], aspect: f32) -> Gathered {
     let offset =
         |index: usize| ((2 * index + 1) as f32 / count as f32).mul_add(half_width, -half_width);
     out.background = scenes
-        .get(count / 2)
+        .get(main_strand(count))
         .and_then(Option::as_deref)
         .or_else(|| scenes.iter().find_map(Option::as_deref))
         .map_or([0.0; 4], |s| linear(s.background));
@@ -666,73 +635,6 @@ fn fullscreen(enc: &Encoder, pipeline: &Pipeline, textures: &[&Texture], post: &
     unsafe { enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::Triangle, 0, 3) };
 }
 
-/// Sets `value` as vertex buffer `vertex` and fragment buffer `fragment`.
-fn set_bytes<T: Copy>(enc: &Encoder, value: &T, vertex: usize, fragment: usize) {
-    let ptr = NonNull::from(value).cast::<c_void>();
-    // SAFETY: `ptr` points to a live `T` of exactly the length given, which
-    // Metal copies; its `repr(C)` layout matches the shaders'.
-    unsafe {
-        enc.setVertexBytes_length_atIndex(ptr, size_of::<T>(), vertex);
-        enc.setFragmentBytes_length_atIndex(ptr, size_of::<T>(), fragment);
-    }
-}
-
-/// A shared buffer holding a copy of `items`; `None` if there are none.
-fn upload<T: Copy>(device: &Device, items: &[T]) -> Option<Retained<Buffer>> {
-    if items.is_empty() {
-        return None;
-    }
-    let ptr = NonNull::from(items).cast::<c_void>();
-    // SAFETY: `ptr` points to `size_of_val(items)` initialised bytes, which
-    // Metal copies before returning.
-    unsafe {
-        device.newBufferWithBytes_length_options(
-            ptr,
-            size_of_val(items),
-            MTLResourceOptions::StorageModeShared,
-        )
-    }
-}
-
-/// Waits for `cb` after copying `target` (BGRA8) into memory.
-fn read_back(
-    device: &Device,
-    cb: &CommandBuffer,
-    target: &Texture,
-) -> Result<Vec<u8>, RendererError> {
-    let (width, height) = (target.width(), target.height());
-    let row = width * 4;
-    let buf = device
-        .newBufferWithLength_options(row * height, MTLResourceOptions::StorageModeShared)
-        .ok_or(RendererError::Create("readback buffer"))?;
-    let blit = cb
-        .blitCommandEncoder()
-        .ok_or(RendererError::Create("blit encoder"))?;
-    // SAFETY: `target` is a `width` x `height` BGRA8 texture and `buf` holds
-    // exactly `row * height` bytes; both outlive the command buffer, which
-    // is waited for below.
-    unsafe {
-        blit.copyFromTexture_sourceSlice_sourceLevel_sourceOrigin_sourceSize_toBuffer_destinationOffset_destinationBytesPerRow_destinationBytesPerImage(
-            target,
-            0,
-            0,
-            MTLOrigin { x: 0, y: 0, z: 0 },
-            MTLSize { width, height, depth: 1 },
-            &buf,
-            0,
-            row,
-            row * height,
-        );
-    }
-    blit.endEncoding();
-    cb.commit();
-    cb.waitUntilCompleted();
-    let ptr = buf.contents().as_ptr() as *const u8;
-    // SAFETY: shared storage of `row * height` bytes, which the GPU finished
-    // writing (`waitUntilCompleted`) and nothing else touches.
-    Ok(unsafe { std::slice::from_raw_parts(ptr, row * height) }.to_vec())
-}
-
 /// ep's colours are display (sRGB-like) values; shading wants linear ones.
 fn linear(c: [f32; 4]) -> [f32; 4] {
     let l = |v: f32| v.max(0.0).powf(2.2);
@@ -754,150 +656,10 @@ fn perspective(aspect: f32) -> [[f32; 4]; 4] {
     ]
 }
 
-/// Appends a ribbon's triangles: a quad between each pair of neighbouring
-/// slots, flat shaded in the newer slot's colour.
-fn ribbon_strip(out: &mut Vec<RibbonVertex>, ribbon: &ep_core::scene::Ribbon, dx: f32) {
-    let moved = |p: [f32; 3]| [p[0] + dx, p[1], p[2], 1.0];
-    for (k, pair) in ribbon.edges.windows(2).enumerate() {
-        let [newer, newer_far] = pair[0];
-        let [older, older_far] = pair[1];
-        let across = cross(sub(newer_far, newer), sub(older, newer));
-        let norm = length(across);
-        if norm < 1e-9 {
-            continue;
-        }
-        let hue = ribbon.hues.get(k).copied().unwrap_or(0.0);
-        let normal = [across[0] / norm, across[1] / norm, across[2] / norm, hue];
-        let colour = linear(ribbon.colours[k]);
-        for p in [newer, newer_far, older_far, newer, older_far, older] {
-            out.push(RibbonVertex {
-                pos: moved(p),
-                normal,
-                colour,
-            });
-        }
-    }
-}
-
-fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [
-        a[1].mul_add(b[2], -a[2] * b[1]),
-        a[2].mul_add(b[0], -a[0] * b[2]),
-        a[0].mul_add(b[1], -a[1] * b[0]),
-    ]
-}
-
-fn length(v: [f32; 3]) -> f32 {
-    v[0].mul_add(v[0], v[1].mul_add(v[1], v[2] * v[2])).sqrt()
-}
-
-/// The tile `shape` as a closed slab: its outline with rounded corners,
-/// faces front and back, and a rounded edge between them, as a triangle
-/// list. The outline keeps ep's size, so the slab covers what ep's tile did.
-fn slab(shape: Shape) -> Vec<MeshVertex> {
-    // Both shapes have an incircle: shrinking towards its centre offsets
-    // every edge inwards by the same distance.
-    let (corners, centre, inradius): (&[[f32; 2]], [f32; 2], f32) = match shape {
-        Shape::Square => (
-            &[[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]],
-            [0.0, 0.0],
-            0.1,
-        ),
-        Shape::Triangle => {
-            let h = 0.173_205_08;
-            (&[[0.0, 0.0], [0.2, 0.0], [0.1, h]], [0.1, h / 3.0], h / 3.0)
-        }
-    };
-    let shrink = (inradius - CORNER_RADIUS) / inradius;
-    let inner: Vec<[f32; 2]> = corners
-        .iter()
-        .map(|c| {
-            [
-                centre[0] + (c[0] - centre[0]) * shrink,
-                centre[1] + (c[1] - centre[1]) * shrink,
-            ]
-        })
-        .collect();
-    // The outward normal's angle of an edge, the corners going anticlockwise.
-    let edge_normal = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).atan2(b[1] - a[1]);
-    // The outline: around each corner, an arc between its edges' normals.
-    let mut outline: Vec<([f32; 2], [f32; 2])> = Vec::new();
-    let sides = inner.len();
-    for i in 0..sides {
-        let prev = inner[(i + sides - 1) % sides];
-        let next = inner[(i + 1) % sides];
-        let a0 = edge_normal(prev, inner[i]);
-        let mut a1 = edge_normal(inner[i], next);
-        if a1 < a0 {
-            a1 += std::f32::consts::TAU;
-        }
-        for k in 0..=CORNER_SEGMENTS {
-            let a = a0 + (a1 - a0) * k as f32 / CORNER_SEGMENTS as f32;
-            outline.push((inner[i], [a.cos(), a.sin()]));
-        }
-    }
-    // Rings from the front face's edge round to the back face's.
-    let core = CORNER_RADIUS - EDGE_RADIUS;
-    let ring = |j: usize| -> Vec<MeshVertex> {
-        let phi =
-            std::f32::consts::FRAC_PI_2 - std::f32::consts::PI * j as f32 / EDGE_SEGMENTS as f32;
-        let (s, c) = phi.sin_cos();
-        outline
-            .iter()
-            .map(|&(p, d)| MeshVertex {
-                pos: [
-                    p[0] + d[0] * (core + EDGE_RADIUS * c),
-                    p[1] + d[1] * (core + EDGE_RADIUS * c),
-                    EDGE_RADIUS * s,
-                    1.0,
-                ],
-                normal: [d[0] * c, d[1] * c, s, 0.0],
-            })
-            .collect()
-    };
-    let rings: Vec<Vec<MeshVertex>> = (0..=EDGE_SEGMENTS).map(ring).collect();
-    let mut out = Vec::new();
-    let m = outline.len();
-    for pair in rings.windows(2) {
-        let [this, next] = [&pair[0], &pair[1]];
-        for k in 0..m {
-            let k1 = (k + 1) % m;
-            out.extend([this[k], this[k1], next[k1], this[k], next[k1], next[k]]);
-        }
-    }
-    // The faces are flat, but shaded as if gently domed (their normals lean
-    // outwards towards the edge), so a reflection sweeps across each tile.
-    for (ring, z) in [(&rings[0], 1.0f32), (&rings[EDGE_SEGMENTS], -1.0)] {
-        let middle = MeshVertex {
-            pos: [centre[0], centre[1], EDGE_RADIUS * z, 0.0],
-            normal: [0.0, 0.0, z, 0.0],
-        };
-        let domed = |v: MeshVertex| {
-            let lean = [
-                (v.pos[0] - centre[0]) / inradius * DOME,
-                (v.pos[1] - centre[1]) / inradius * DOME,
-            ];
-            let scale = length([lean[0], lean[1], 1.0]);
-            MeshVertex {
-                normal: [lean[0] / scale, lean[1] / scale, z / scale, 0.0],
-                ..v
-            }
-        };
-        for k in 0..m {
-            out.extend([middle, domed(ring[k]), domed(ring[(k + 1) % m])]);
-        }
-    }
-    out
-}
-
 impl Targets {
     /// `None` if Metal can't allocate them, or won't at that size.
     fn new(device: &Device, width: usize, height: usize) -> Option<Self> {
-        if !(1..=MAX_SIDE).contains(&width) || !(1..=MAX_SIDE).contains(&height) {
+        if !fits(width, height) {
             return None;
         }
         let memoryless = |format| {
@@ -947,35 +709,6 @@ impl Targets {
             bloom,
         })
     }
-}
-
-fn texture(
-    device: &Device,
-    format: MTLPixelFormat,
-    width: usize,
-    height: usize,
-    samples: usize,
-    storage: MTLStorageMode,
-) -> Option<Retained<Texture>> {
-    // SAFETY: a plain descriptor; callers rule out zero sizes.
-    let desc = unsafe {
-        MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(
-            format, width, height, false,
-        )
-    };
-    if samples > 1 {
-        desc.setTextureType(MTLTextureType::Type2DMultisample);
-        // SAFETY: 4x multisampling is supported by every Apple GPU.
-        unsafe { desc.setSampleCount(samples) };
-    }
-    desc.setStorageMode(storage);
-    let usage = if storage == MTLStorageMode::Memoryless {
-        MTLTextureUsage::RenderTarget
-    } else {
-        MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead
-    };
-    desc.setUsage(usage);
-    device.newTextureWithDescriptor(&desc)
 }
 
 impl Pipelines {
@@ -1038,35 +771,5 @@ impl Pipelines {
                 .newDepthStencilStateWithDescriptor(&depth)
                 .ok_or(RendererError::Create("depth state"))?,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn slabs_keep_eps_outline() {
-        // The edges lie on ep's (the corners are rounded inside them): the
-        // square's sides at x = ±0.1, the triangle's base at y = 0.
-        for (shape, axis, sign, edge) in [
-            (Shape::Square, 0, 1.0, 0.1),
-            (Shape::Triangle, 1, -1.0, 0.0),
-        ] {
-            let verts = slab(shape);
-            assert_eq!(verts.len() % 3, 0);
-            let extreme = verts
-                .iter()
-                .map(|v| sign * v.pos[axis])
-                .fold(f32::MIN, f32::max);
-            assert!((extreme - sign * edge).abs() < 1e-4, "{shape:?}: {extreme}");
-            let depth = verts.iter().map(|v| v.pos[2].abs()).fold(0.0, f32::max);
-            assert!((depth - EDGE_RADIUS).abs() < 1e-6);
-            for v in &verts {
-                let n = v.normal;
-                let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-                assert!((len - 1.0).abs() < 1e-4, "{n:?}");
-            }
-        }
     }
 }

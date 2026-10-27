@@ -10,7 +10,7 @@ use std::rc::Rc;
 use ep_metal::Renderer;
 use ep_metal::remastered::Remastered;
 use ep_metal::show::Show;
-use ep_metal::surface::{Style, Surface, auto_strands, region};
+use ep_metal::surface::{Strands, Style, Surface, main_strand, region};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -39,33 +39,12 @@ struct Options {
 
 impl Options {
     fn strands(&self) -> Strands {
-        self.strands.unwrap_or(match self.style {
-            Style::Classic => Strands::Count(1),
-            Style::Remastered => Strands::Auto,
-        })
+        self.strands.unwrap_or_else(|| self.style.strands())
     }
-}
-
-/// `--strands`: how many shows run side by side in each window.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Strands {
-    /// As many as fit, each about the shape of ep's screen.
-    Auto,
-    Count(usize),
 }
 
 /// The most strands `--strands` takes: each has buffers of its own.
 const MAX_STRANDS: usize = 16;
-
-impl Strands {
-    /// The number of strands across a `width` x `height` view.
-    fn count(self, width: f64, height: f64) -> usize {
-        match self {
-            Strands::Auto => auto_strands(width, height),
-            Strands::Count(n) => n,
-        }
-    }
-}
 
 /// `--snapshot FILE`: render offscreen and write the picture shown after the
 /// given number of 60 Hz retraces as a PNG, then exit.
@@ -368,7 +347,7 @@ impl ShowView {
 
         *view.ivars().borrow_mut() = Some(ViewState {
             style,
-            main: shows.len() / 2,
+            main: main_strand(shows.len()),
             shows,
             surface,
             quit_on_input,
@@ -384,11 +363,10 @@ impl ShowView {
         // Keep the drawable at the view's size in device pixels.
         let window = self.window();
         let scale = window.as_ref().map_or(1.0, |w| w.backingScaleFactor());
-        st.surface.fit(self.bounds().size, scale);
         let headroom = window
             .and_then(|w| w.screen())
             .map_or(1.0, |s| s.maximumExtendedDynamicRangeColorComponentValue());
-        st.surface.set_headroom(headroom);
+        st.surface.fit(self.bounds().size, scale, headroom);
         if let Err(e) = st.surface.set_style(st.style.get()) {
             eprintln!("electropaint: {e}");
             st.style.set(Style::Classic);
@@ -513,7 +491,7 @@ fn open_window(
     let content = NSRect::new(NSPoint::new(0.0, 0.0), rect.size);
     let count = strands.count(rect.size.width, rect.size.height);
     let shows: Vec<_> = (0..count).map(|_| new_show()).collect();
-    let main = shows[count / 2].clone();
+    let main = shows[main_strand(count)].clone();
     let view = ShowView::new(mtm, content, style.clone(), shows, quit_on_input);
     window.setContentView(Some(&view));
     if screen.is_some() {

@@ -12,12 +12,10 @@
 //! ep's vertical field of view and takes the drawable's own aspect, so the
 //! picture fills the screen instead of being letterboxed.
 
+mod gpu;
 pub mod remastered;
 pub mod show;
 pub mod surface;
-
-use std::ffi::c_void;
-use std::ptr::NonNull;
 
 use ep_core::frame::{DrawBuffer, DrawState, Frame, Op, Projection, Vertex};
 use objc2::rc::Retained;
@@ -28,11 +26,12 @@ use objc2_metal::{
     MTLCommandQueue, MTLCompareFunction, MTLCreateSystemDefaultDevice, MTLDepthStencilDescriptor,
     MTLDepthStencilState, MTLDevice, MTLLibrary, MTLLoadAction, MTLOrigin, MTLPixelFormat,
     MTLPrimitiveType, MTLRenderCommandEncoder, MTLRenderPassDescriptor,
-    MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, MTLSize,
-    MTLStorageMode, MTLStoreAction, MTLTexture, MTLTextureDescriptor, MTLTextureType,
-    MTLTextureUsage,
+    MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLSize, MTLStorageMode, MTLStoreAction,
+    MTLTexture,
 };
 use objc2_quartz_core::CAMetalLayer;
+
+use gpu::{check_size, fits, read_back, set_bytes, texture, upload};
 
 /// Height of the original display; line widths and stipple pixels are
 /// expressed in its pixels.
@@ -49,6 +48,8 @@ type Texture = ProtocolObject<dyn MTLTexture>;
 type Pipeline = ProtocolObject<dyn MTLRenderPipelineState>;
 type DepthState = ProtocolObject<dyn MTLDepthStencilState>;
 type Encoder = ProtocolObject<dyn MTLRenderCommandEncoder>;
+type Buffer = ProtocolObject<dyn MTLBuffer>;
+type CommandBuffer = ProtocolObject<dyn MTLCommandBuffer>;
 
 /// Per-draw constants; layout matches `Uniforms` in shaders.metal.
 #[repr(C)]
@@ -296,48 +297,15 @@ impl Renderer {
         height: usize,
         frames: &[Frame],
     ) -> Result<Vec<u8>, RendererError> {
-        if !(1..=MAX_SIDE).contains(&width) || !(1..=MAX_SIDE).contains(&height) {
-            return Err(RendererError::Size { width, height });
-        }
+        check_size(width, height)?;
         let cb = self
             .encode(width, height, frames)
             .ok_or(RendererError::Create("render targets"))?;
-        let row = width * 4;
-        let buf = self
-            .device
-            .newBufferWithLength_options(row * height, MTLResourceOptions::StorageModeShared)
-            .ok_or(RendererError::Create("readback buffer"))?;
-        let blit = cb
-            .blitCommandEncoder()
-            .ok_or(RendererError::Create("blit encoder"))?;
         let targets = self
             .targets
             .as_ref()
             .ok_or(RendererError::Create("render targets"))?;
-        let src = &targets.color[self.front].resolved;
-        // SAFETY: `src` is a `width` x `height` BGRA8 texture (4 bytes per
-        // pixel) and `buf` holds exactly `row * height` bytes; both outlive
-        // the command buffer, which is waited for below.
-        unsafe {
-            blit.copyFromTexture_sourceSlice_sourceLevel_sourceOrigin_sourceSize_toBuffer_destinationOffset_destinationBytesPerRow_destinationBytesPerImage(
-                src,
-                0,
-                0,
-                MTLOrigin { x: 0, y: 0, z: 0 },
-                MTLSize { width, height, depth: 1 },
-                &buf,
-                0,
-                row,
-                row * height,
-            );
-        }
-        blit.endEncoding();
-        cb.commit();
-        cb.waitUntilCompleted();
-        let ptr = buf.contents().as_ptr() as *const u8;
-        // SAFETY: shared storage of `row * height` bytes, which the GPU
-        // finished writing (`waitUntilCompleted`) and nothing else touches.
-        Ok(unsafe { std::slice::from_raw_parts(ptr, row * height) }.to_vec())
+        read_back(&self.device, &cb, &targets.color[self.front].resolved)
     }
 
     /// Encodes the frames' operations into a new command buffer, (re)creating
@@ -405,21 +373,7 @@ impl Renderer {
                 all.extend_from_slice(verts);
             }
         }
-        if all.is_empty() {
-            return (None, offsets);
-        }
-        let bytes = all.len() * size_of::<Vertex>();
-        let ptr = NonNull::from(all.as_slice()).cast::<c_void>();
-        // SAFETY: `ptr` points to `bytes` initialised bytes, which Metal
-        // copies before returning.
-        let buf = unsafe {
-            self.device.newBufferWithBytes_length_options(
-                ptr,
-                bytes,
-                MTLResourceOptions::StorageModeShared,
-            )
-        };
-        (buf, offsets)
+        (upload(&self.device, all), offsets)
     }
 
     /// Encodes a run of drawing ops into each buffer the current
@@ -568,7 +522,7 @@ impl Renderer {
         }));
         // SAFETY: `offset` came from `upload_vertices`, so it lies within `vbuf`.
         unsafe { enc.setVertexBuffer_offset_atIndex(Some(vbuf), offset, 0) };
-        set_uniforms(enc, u);
+        set_bytes(enc, u, 1, 1);
     }
 }
 
@@ -576,20 +530,10 @@ impl Renderer {
 fn draw_fill(enc: &Encoder, pipeline: &Pipeline, depth: &DepthState, u: &Uniforms) {
     enc.setRenderPipelineState(pipeline);
     enc.setDepthStencilState(Some(depth));
-    set_uniforms(enc, u);
+    set_bytes(enc, u, 1, 1);
     // SAFETY: the fill shaders make their full-screen triangle from the
     // vertex id and read no vertex buffer.
     unsafe { enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::Triangle, 0, 3) };
-}
-
-fn set_uniforms(enc: &Encoder, u: &Uniforms) {
-    let ptr = NonNull::from(u).cast::<c_void>();
-    // SAFETY: `ptr` points to a live `Uniforms` of exactly the length given,
-    // which Metal copies; its `repr(C)` layout matches the shaders'.
-    unsafe {
-        enc.setVertexBytes_length_atIndex(ptr, size_of::<Uniforms>(), 1);
-        enc.setFragmentBytes_length_atIndex(ptr, size_of::<Uniforms>(), 1);
-    }
 }
 
 /// IrisGL `perspective` with Metal's [0, 1] depth range, column-major.
@@ -609,13 +553,27 @@ fn projection_matrix(p: &Projection, aspect: f32) -> [[f32; 4]; 4] {
 impl Targets {
     /// `None` if Metal can't allocate them, or won't at that size.
     fn new(device: &Device, width: usize, height: usize) -> Option<Self> {
-        if width > MAX_SIDE || height > MAX_SIDE {
+        if !fits(width, height) {
             return None;
         }
         let buffer = || {
             Some(ColorBuffer {
-                msaa: texture(device, COLOR_FORMAT, width, height, SAMPLES)?,
-                resolved: texture(device, COLOR_FORMAT, width, height, 1)?,
+                msaa: texture(
+                    device,
+                    COLOR_FORMAT,
+                    width,
+                    height,
+                    SAMPLES,
+                    MTLStorageMode::Private,
+                )?,
+                resolved: texture(
+                    device,
+                    COLOR_FORMAT,
+                    width,
+                    height,
+                    1,
+                    MTLStorageMode::Private,
+                )?,
                 fresh: true,
             })
         };
@@ -623,33 +581,17 @@ impl Targets {
             width,
             height,
             color: [buffer()?, buffer()?],
-            depth: texture(device, DEPTH_FORMAT, width, height, SAMPLES)?,
+            depth: texture(
+                device,
+                DEPTH_FORMAT,
+                width,
+                height,
+                SAMPLES,
+                MTLStorageMode::Private,
+            )?,
             depth_fresh: true,
         })
     }
-}
-
-fn texture(
-    device: &Device,
-    format: MTLPixelFormat,
-    width: usize,
-    height: usize,
-    samples: usize,
-) -> Option<Retained<Texture>> {
-    // SAFETY: a plain descriptor; `encode` rules out zero sizes.
-    let desc = unsafe {
-        MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(
-            format, width, height, false,
-        )
-    };
-    if samples > 1 {
-        desc.setTextureType(MTLTextureType::Type2DMultisample);
-        // SAFETY: 4x multisampling is supported by every Apple GPU.
-        unsafe { desc.setSampleCount(samples) };
-    }
-    desc.setStorageMode(MTLStorageMode::Private);
-    desc.setUsage(MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead);
-    device.newTextureWithDescriptor(&desc)
 }
 
 impl Pipelines {
