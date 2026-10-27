@@ -42,6 +42,17 @@ vertex VOut line_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     Vertex a = verts[2 * iid], b = verts[2 * iid + 1];
     float4 ca = u.proj * float4(float3(a.pos), 1.0);
     float4 cb = u.proj * float4(float3(b.pos), 1.0);
+    // A segment reaching behind the eye is cut where it passes it: the
+    // widening below works in screen space, which flips there.
+    const float near_w = 1e-4;
+    if (ca.w < near_w && cb.w < near_w) {
+        return VOut{float4(0.0), float4(0.0)};
+    }
+    if (ca.w < near_w) {
+        ca = mix(ca, cb, (near_w - ca.w) / (cb.w - ca.w));
+    } else if (cb.w < near_w) {
+        cb = mix(cb, ca, (near_w - cb.w) / (ca.w - cb.w));
+    }
     float2 sa = ca.xy / ca.w * 0.5 * u.viewport;
     float2 sb = cb.xy / cb.w * 0.5 * u.viewport;
     float2 d = sb - sa;

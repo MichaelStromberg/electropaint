@@ -658,9 +658,17 @@ fn fullscreen(enc: &Encoder, pipeline: &Pipeline, textures: &[&Texture], post: &
     unsafe { enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::Triangle, 0, 3) };
 }
 
-/// ep's colours are display (sRGB-like) values; shading wants linear ones.
+/// ep's colours are display (sRGB) values; shading wants linear ones. The
+/// exact sRGB curve, as the output encodes with.
 fn linear(c: [f32; 4]) -> [f32; 4] {
-    let l = |v: f32| v.max(0.0).powf(2.2);
+    let l = |v: f32| {
+        let v = v.max(0.0);
+        if v <= 0.040_45 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
     [l(c[0]), l(c[1]), l(c[2]), c[3]]
 }
 

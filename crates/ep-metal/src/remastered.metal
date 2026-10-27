@@ -184,7 +184,9 @@ fragment float4 shade_fragment(Shaded in [[stage_in]], constant View &view [[buf
     // Over a fill the outline is a fine glowing inlay; alone it is the tile.
     float3 glow = in.outline.rgb * in.outline.a * rim * (fill ? (fat ? 1.6 : 0.9) : (fat ? 5.0 : 3.0));
     if (!fill) {
-        return float4(glow, 1.0);
+        // Only as opaque as it glows, so a faint edge doesn't hide the
+        // backdrop or a trail behind it.
+        return float4(glow, rim);
     }
 
     float3 v = normalize(-in.eye);
@@ -305,7 +307,9 @@ fragment float4 final_fragment(Screen in [[stage_in]], texture2d<float> strand [
     c += bloom.sample(linear_clamp, in.uv).rgb * post.bloom;
 
     float top = max(post.headroom, 1.0);
-    float knee = top > 1.0 ? 1.0 : 0.75;
+    // Easing in from 0.75 on SDR to 1 by a headroom of 4/3, as macOS moves
+    // the headroom with the brightness.
+    float knee = min(0.75 * top, 1.0);
     float peak = max(c.r, max(c.g, c.b));
     if (peak > knee) {
         c *= shoulder(peak, knee, top) / peak;
