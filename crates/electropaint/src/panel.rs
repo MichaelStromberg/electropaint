@@ -37,6 +37,12 @@ use objc2_foundation::{
 /// before following the simulation again, so a drag isn't fought.
 const EDIT_GRACE: Duration = Duration::from_millis(400);
 const REFRESH_HZ: f64 = 20.0;
+/// Readouts change every refresh while a value drifts, and every change
+/// costs a layout pass; a few updates a second is as fast as they can be read.
+const READOUT_EVERY: u64 = 4;
+/// A slider is moved only once its knob would move at least this far, in
+/// points: setting a slider redraws it even for an invisible change.
+const KNOB_STEP: f64 = 0.5;
 /// Space around the window's content and between its parts.
 const MARGIN: f64 = 20.0;
 
@@ -112,6 +118,10 @@ struct Control {
     edited: Cell<Option<Instant>>,
     /// A symbol button standing for a toggle: tinted while it is on.
     tinted: bool,
+    /// The simulation state last shown (see `state_of`). Setting a control
+    /// costs AppKit a layout pass and a redraw even when nothing changes, so
+    /// unchanged controls are left alone.
+    shown: Cell<Option<[f32; 2]>>,
 }
 
 /// The channel grid and its rows for the hue sliders and for the
@@ -121,10 +131,15 @@ struct ChanRows {
     grid: Retained<NSGridView>,
     hue: Vec<isize>,
     light: Vec<isize>,
+    /// The mode last shown.
+    hue_mode: Cell<Option<bool>>,
 }
 
 impl ChanRows {
     fn show(&self, hue_mode: bool) {
+        if self.hue_mode.replace(Some(hue_mode)) == Some(hue_mode) {
+            return;
+        }
         let lightness = !hue_mode;
         for (rows, hidden) in [(&self.hue, lightness), (&self.light, !lightness)] {
             for &r in rows {
@@ -149,6 +164,8 @@ pub(crate) struct PanelIvars {
     pinned: bool,
     chan_rows: RefCell<Option<ChanRows>>,
     timer: RefCell<Option<Retained<NSTimer>>>,
+    /// Refreshes so far, for pacing the readouts.
+    refreshes: Cell<u64>,
 }
 
 define_class!(
@@ -208,6 +225,7 @@ impl PanelController {
             pinned,
             chan_rows: RefCell::new(None),
             timer: RefCell::new(None),
+            refreshes: Cell::new(0),
         });
         // SAFETY: NSObject's initialiser, once, on a fresh allocation.
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
@@ -559,6 +577,7 @@ impl PanelController {
             grid: g.clone(),
             hue: hue_rows,
             light: light_rows,
+            hue_mode: Cell::new(None),
         });
         into_view(g)
     }
@@ -632,6 +651,7 @@ impl PanelController {
             bind,
             edited: Cell::new(None),
             tinted,
+            shown: Cell::new(None),
         });
     }
 
@@ -761,6 +781,9 @@ impl PanelController {
         let controls = self.ivars().controls.borrow();
         let Some(c) = controls.get(index) else { return };
         c.edited.set(Some(Instant::now()));
+        // The user moved it: show the simulation's value again afterwards
+        // even if that hasn't changed.
+        c.shown.set(None);
         let mut show = self.ivars().show.borrow_mut();
         let sim = show.sim_mut();
         match c.bind {
@@ -843,14 +866,58 @@ impl PanelController {
         let show = self.ivars().show.borrow();
         let sim = show.sim();
         let now = Instant::now();
+        let refresh = self.ivars().refreshes.get();
+        self.ivars().refreshes.set(refresh + 1);
         for c in self.ivars().controls.borrow().iter() {
             if c.edited.get().is_some_and(|t| now - t < EDIT_GRACE) {
                 continue;
             }
+            let state = self.state_of(c, sim);
+            if self.is_current(c, state, refresh) {
+                continue;
+            }
+            c.shown.set(Some(state));
             self.show_control(c, sim);
         }
         if let Some(rows) = self.ivars().chan_rows.borrow().as_ref() {
             rows.show(sim.controls().hue_mode);
+        }
+    }
+
+    /// Whether `c`, last set to show `shown`, still shows `state` closely
+    /// enough to leave alone this refresh.
+    fn is_current(&self, c: &Control, state: [f32; 2], refresh: u64) -> bool {
+        let Some(shown) = c.shown.get() else {
+            return false;
+        };
+        if shown == state {
+            return true;
+        }
+        match c.bind {
+            Bind::Readout(_) => !refresh.is_multiple_of(READOUT_EVERY),
+            Bind::Value(_) => c.view.downcast_ref::<NSSlider>().is_some_and(|s| {
+                let span = s.maxValue() - s.minValue();
+                let moved = f64::from((state[0] - shown[0]).abs()) / span * s.bounds().size.width;
+                moved < KNOB_STEP
+            }),
+            _ => false,
+        }
+    }
+
+    /// What `c` shows of the simulation: when this is unchanged, so is the
+    /// control. (A missing value reads as NaN, which never compares equal.)
+    fn state_of(&self, c: &Control, sim: &Sim) -> [f32; 2] {
+        let flag = |b: bool| f32::from(u8::from(b));
+        match c.bind {
+            Bind::Value(id) | Bind::Readout(id) => [sim.value(id).unwrap_or(f32::NAN), 0.0],
+            Bind::Press(id) => [flag(sim.is_on(id)), 0.0],
+            Bind::Swatch(i) => [
+                sim.value(ids::hue_slider(i)).unwrap_or(f32::NAN),
+                sim.value(ids::light_slider(i)).unwrap_or(f32::NAN),
+            ],
+            Bind::Puck(axis) => [self.ivars().puck.get()[axis], 0.0],
+            Bind::ChanMode => [flag(sim.controls().hue_mode), 0.0],
+            Bind::PuckCentre | Bind::Page => [0.0; 2],
         }
     }
 
