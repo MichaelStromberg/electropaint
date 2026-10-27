@@ -27,6 +27,9 @@ pub struct Options {
     pub startup_redraw: bool,
     /// Record an [`IrisCall`](crate::IrisCall) log.
     pub call_log: bool,
+    /// Also describe each picture as a [`Scene`](crate::scene::Scene), in
+    /// [`Frame::scene`](crate::Frame::scene).
+    pub scene: bool,
     /// What `color()` does in RGB mode (only the fade uses it).
     pub rgb_color_index: RgbColorIndex,
 }
@@ -43,6 +46,7 @@ impl Options {
             screen: (1280, 1024),
             startup_redraw: true,
             call_log: false,
+            scene: false,
             rgb_color_index: RgbColorIndex::PackedLow16,
         }
     }

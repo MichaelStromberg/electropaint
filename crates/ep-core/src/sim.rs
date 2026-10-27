@@ -17,6 +17,7 @@ use crate::frame::{Frame, Op};
 use crate::gl::{Arg, Gl, IDENTITY, IrisCall};
 use crate::panel::{Actuator, Controls, ID_LIMIT, Kind, ids};
 use crate::rand48::Rand48;
+use crate::scene::Scene;
 use light::deflight;
 pub use options::{Options, SwapCause};
 
@@ -119,7 +120,7 @@ pub struct Sim {
     gspin: f32,
     pub(crate) hist: History,
     bkg: i32,
-    bkg_rgba: [f32; 4],
+    pub(crate) bkg_rgba: [f32; 4],
     pub(crate) col_rgba: [f32; 4],
     pub(crate) outline_rgba: [f32; 4],
     fade_phase: usize,
@@ -137,6 +138,10 @@ pub struct Sim {
     /// How the last pass moved, for [`Sim::frame_between`]; `None` unless
     /// it repainted the whole picture.
     between: Option<Between>,
+    /// The scene being recorded (`Options::scene`), and whether this tick
+    /// drew it.
+    pub(crate) scene: Option<Scene>,
+    pub(crate) scene_drawn: bool,
 }
 
 /// Values from the start of the last main-loop pass that an in-between
@@ -217,6 +222,8 @@ impl Sim {
             swaps: Vec::new(),
             startup_ops: Vec::new(),
             between: None,
+            scene: opts.scene.then(Scene::default),
+            scene_drawn: false,
         };
         sim.init(opts.seed);
         sim
@@ -287,7 +294,12 @@ impl Sim {
             }
         }
         ops.extend(self.gl.take_frame().ops);
-        Frame { ops }
+        let scene = if std::mem::take(&mut self.scene_drawn) {
+            self.scene.clone().map(Box::new)
+        } else {
+            None
+        };
+        Frame { ops, scene }
     }
 
     /// Why each `Swap` in the last tick's frame happened, in order.
@@ -420,7 +432,9 @@ impl Sim {
         s.gl.c4f(s.bkg_rgba);
         s.gl.clear();
         s.drawit();
-        Some(s.gl.take_frame())
+        let mut frame = s.gl.take_frame();
+        frame.scene = s.scene.take().map(Box::new);
+        Some(frame)
     }
 
     /// Strand slot counter `n` and how many slots are drawn.

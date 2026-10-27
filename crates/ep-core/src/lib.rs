@@ -21,6 +21,7 @@ pub mod frame;
 mod gl;
 pub mod panel;
 mod rand48;
+pub mod scene;
 pub mod script;
 pub mod sim;
 pub mod trace;

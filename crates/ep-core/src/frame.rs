@@ -5,6 +5,8 @@
 //! colour, so the renderer only has to project, rasterize, depth-test and
 //! blend. Operations must be executed in order.
 
+use crate::scene::Scene;
+
 /// A vertex in eye space (after the modelview matrix) with its final RGBA
 /// colour (after lighting and flat shading are resolved). `repr(C)` so a
 /// renderer can upload slices of it directly (28 bytes, packed floats).
@@ -79,6 +81,9 @@ pub enum Op {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Frame {
     pub ops: Vec<Op>,
+    /// The picture the tick drew, as a scene (with `Options::scene`; `None`
+    /// for a tick that drew nothing, which leaves the picture as it was).
+    pub scene: Option<Box<Scene>>,
 }
 
 impl Frame {

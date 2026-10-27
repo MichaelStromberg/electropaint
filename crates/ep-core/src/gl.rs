@@ -129,6 +129,7 @@ impl Gl {
     pub(crate) fn take_frame(&mut self) -> Frame {
         Frame {
             ops: std::mem::take(&mut self.ops),
+            scene: None,
         }
     }
 
@@ -149,6 +150,12 @@ impl Gl {
     /// The modelview matrix in force.
     pub(crate) fn modelview(&self) -> &Mat4 {
         self.stack.last().expect("matrix stack is never empty")
+    }
+
+    /// Where model-space point `v` is in eye space (as `v3f` would put it,
+    /// without drawing or logging anything).
+    pub(crate) fn eye_point(&self, v: [f32; 3]) -> [f32; 3] {
+        transform_point(self.modelview(), v)
     }
 
     fn modelview_mut(&mut self) -> &mut Mat4 {

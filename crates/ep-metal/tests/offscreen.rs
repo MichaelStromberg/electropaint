@@ -51,6 +51,7 @@ fn clear_triangle_and_swap() -> Result<(), RendererError> {
     };
     let frame = Frame {
         ops: vec![projection(), Op::Clear(RED), tri, Op::Swap],
+        ..Frame::default()
     };
     let img = r.render_offscreen(W, H, &[frame])?;
     assert_eq!(
@@ -68,6 +69,7 @@ fn clear_triangle_and_swap() -> Result<(), RendererError> {
     // contents (the never-written buffer is black).
     let swap = Frame {
         ops: vec![Op::Swap],
+        ..Frame::default()
     };
     let img = r.render_offscreen(W, H, &[swap])?;
     assert_eq!(px(&img, 2, 2), [0, 0, 0, 255]);
@@ -95,10 +97,12 @@ fn blending_and_front_buffer() -> Result<(), RendererError> {
     let frames = [
         Frame {
             ops: vec![projection(), Op::Clear(RED), Op::Swap],
+            ..Frame::default()
         },
         // Draw into the visible buffer directly, as smear mode does.
         Frame {
             ops: vec![Op::SetDrawBuffer(DrawBuffer::Front), quad(half_green)],
+            ..Frame::default()
         },
     ];
     let img = r.render_offscreen(W, H, &frames)?;
@@ -130,6 +134,7 @@ fn stipple_fill_hits_one_pixel_per_4x4_block() -> Result<(), RendererError> {
             },
             Op::Swap,
         ],
+        ..Frame::default()
     };
     let img = r.render_offscreen(w, h, &[frame])?;
     let at = |x: usize, y_from_bottom: usize| {
@@ -169,6 +174,7 @@ fn wide_lines_cover_minor_axis() -> Result<(), RendererError> {
             line,
             Op::Swap,
         ],
+        ..Frame::default()
     };
     let img = r.render_offscreen(w, h, &[frame])?;
     // Multisampling softens the edges, so measure total coverage in pixels.
