@@ -54,9 +54,8 @@ impl Builder {
         let a = self.add(ids::MOUSE, Kind::Mouse, m);
         a.label = Some("mouse");
         a.down = Some(SetFullscreen);
-        let a = self.add(ids::LABEL, Kind::Label, m);
-        a.label = Some("...by David Tristram");
-        a.pos = [0.2, 19.0];
+        // The original's credit line; the port shows no text for it.
+        self.add(ids::LABEL, Kind::Label, m).pos = [0.2, 19.0];
         let a = self.wide(ids::EXIT, "exit", 0.0, Kind::WideButton);
         a.key = Some('\x1b');
         a.up = Some(CleanExit);

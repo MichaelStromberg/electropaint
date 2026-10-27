@@ -1,8 +1,8 @@
 # electropaint
 
 A port of SGI's electropaint (`/usr/demos/bin/ep`, IRIX 5.3) to macOS, written
-in Rust with Metal. It runs the original's built-in "mello" show by Dave
-Tristram, along with every drawing mode and control the original has.
+in Rust with Metal. It runs the original's built-in "mello" show, along with
+every drawing mode and control the original has.
 
 The simulation is a re-implementation from the reverse-engineered binary.
 Its IrisGL call stream matches recordings of the real program running on
@@ -157,3 +157,8 @@ recordings skip themselves when `re/` is absent.
 ## Tests
 
     cargo test --release --workspace
+
+## Thanks
+
+Thanks to David Tristram, whose name is on the original electropaint's
+control panel and who wrote the "mello" show that this port runs.

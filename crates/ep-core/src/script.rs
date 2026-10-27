@@ -137,9 +137,9 @@ impl Script {
         }
     }
 
-    /// The built-in show (`ep` / `ep -b`): the "mello" script by Dave
-    /// Tristram, as data (animation.md §1.4). Every command is at frame 0
-    /// and every `looplen` is 0.
+    /// The built-in show (`ep` / `ep -b`): the original's "mello" script,
+    /// as data (animation.md §1.4). Every command is at frame 0 and every
+    /// `looplen` is 0.
     pub fn builtin() -> Script {
         // (sequence id, commands) in creation order. The list order is the
         // reverse: each new sequence goes to the front.
