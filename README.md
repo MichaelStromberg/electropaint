@@ -1,5 +1,9 @@
 # electropaint
 
+[![crates.io](https://img.shields.io/crates/v/electropaint.svg)](https://crates.io/crates/electropaint)
+[![release](https://img.shields.io/github/v/release/MichaelStromberg/electropaint)](https://github.com/MichaelStromberg/electropaint/releases/latest)
+[![licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+
 A port of SGI's electropaint (`/usr/demos/bin/ep`, IRIX 5.3) to macOS, written
 in Rust with Metal. It runs the original's built-in "mello" show, along with
 every drawing mode and control the original has.
@@ -14,6 +18,26 @@ agree to within the emulated Indy's 4-bit colour depth.
 `docs/ground-truth.md` describes how the recordings were made and checked.
 
 Apple Silicon and macOS 14 or later.
+
+## Install
+
+**The app and the screen savers.** Download the DMG from the
+[latest release](https://github.com/MichaelStromberg/electropaint/releases/latest),
+open it and drag electropaint to Applications. Opened from Finder, it runs
+the [remastered](#remastered) show fullscreen with its control panel; Esc or
+⌘Q quits. To install a [screen saver](#screen-saver), double-click it in the
+DMG's Screen Savers folder.
+
+The downloads aren't signed with an Apple developer account, so macOS stops
+each one the first time ("Apple could not verify…"). Try to open it once,
+then allow it in System Settings → Privacy & Security → Open Anyway. Or, in
+Terminal:
+
+    xattr -dr com.apple.quarantine /Applications/electropaint.app
+    xattr -dr com.apple.quarantine ~/Library/Screen\ Savers/electropaint*.saver
+
+**With cargo.** `cargo install electropaint` builds the app's program (not the
+screen savers) and puts `electropaint` on your path, with the options below.
 
 ## Running
 
@@ -169,9 +193,11 @@ lightness.
 
 ## Screen saver
 
+The DMG has two screen savers; to build them from source,
+
     ./scripts/make-saver.sh
 
-builds two screen savers in `target/saver/`: `electropaint.saver`, as ep drew
+builds them in `target/saver/`: `electropaint.saver`, as ep drew
 it, and `electropaint Remastered.saver`, which draws in the
 [remastered](#remastered) style with as many strands as fit each display.
 Double-click one to install it, or copy them into `~/Library/Screen Savers`.
@@ -188,7 +214,8 @@ any two savers.
 | `crates/ep-saver` | the screen saver |
 | `docs/spec` | the reverse-engineered behaviour, in our own words |
 | `tools/irix` | the IRIX-side call tracer generator and helpers |
-| `scripts` | building the screen savers |
+| `scripts` | building the screen savers, the app bundle and the DMG (`make-dmg.sh`), and the icon |
+| `assets` | the app icon and the screen savers' thumbnails |
 
 SGI's binaries, decompiled code, the original script text and the IRIX
 recordings stay in the git-ignored `re/` directory. Tests that compare against
