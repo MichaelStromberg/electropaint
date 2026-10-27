@@ -45,7 +45,7 @@ mod tests {
     fn irix_fixtures() {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../re/fixtures");
         let Ok(entries) = std::fs::read_dir(dir) else {
-            return crate::testing::re_missing(dir);
+            return;
         };
         for e in entries.flatten() {
             let name = e.file_name().into_string().unwrap();

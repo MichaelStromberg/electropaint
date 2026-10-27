@@ -54,6 +54,10 @@ fn parse_args() -> Options {
     };
     let (mut frames, mut size) = (600, (1280, 1024));
     let mut args = std::env::args().skip(1);
+    let number = |v: Option<String>, what: &str| -> u64 {
+        v.and_then(|s| s.parse().ok())
+            .unwrap_or_else(|| usage_error(&format!("{what} needs a number")))
+    };
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--windowed" => opts.windowed = true,
@@ -69,7 +73,7 @@ fn parse_args() -> Options {
                     .unwrap_or_else(|e| usage_error(&format!("{path}: {e}")));
                 opts.script = Some(ep_core::Script::parse(&text));
             }
-            "--seed" => opts.seed = Some(number(args.next(), "--seed")),
+            "--seed" => opts.seed = Some(number(args.next(), "--seed") as i64),
             "--snapshot" => {
                 let path = args
                     .next()
@@ -117,12 +121,6 @@ control panel (--controls keeps it up). Esc quits.
 
 The show steps at the original's 60 Hz; faster displays get in-between
 pictures on the refreshes between steps.";
-
-/// An option's numeric value; a usage error if it is missing or malformed.
-fn number<T: std::str::FromStr>(v: Option<String>, what: &str) -> T {
-    v.and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| usage_error(&format!("{what} needs a number")))
-}
 
 fn usage_error(msg: &str) -> ! {
     eprintln!("electropaint: {msg}\n{USAGE}");

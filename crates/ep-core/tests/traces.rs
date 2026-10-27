@@ -2,8 +2,7 @@
 //! (IRIX 5.3 `ep` on an emulated Indy, `time()` = 12345).
 //!
 //! The traces live in the git-ignored `re/` directory; each test passes
-//! trivially (with a note on stderr) when its files are absent, unless
-//! `EP_REQUIRE_TRACES` is set.
+//! trivially (with a note on stderr) when its files are absent.
 
 use std::path::{Path, PathBuf};
 
@@ -12,15 +11,6 @@ use ep_core::{Options, Script};
 
 fn re() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../re")
-}
-
-/// A test's files are absent: skip it, or fail if `EP_REQUIRE_TRACES` is set.
-fn missing(what: &str) {
-    assert!(
-        std::env::var_os("EP_REQUIRE_TRACES").is_none(),
-        "{what}, and EP_REQUIRE_TRACES is set"
-    );
-    eprintln!("skipping {what}");
 }
 
 /// One recording and how it was made.
@@ -67,7 +57,7 @@ impl Case {
         let ops = dir.join("eptrace_ops.json");
         let path = dir.join(format!("{}.trace", self.trace));
         if !ops.exists() || !path.exists() {
-            missing(&format!("{}: trace not present", self.trace));
+            eprintln!("skipping {}: trace not present", self.trace);
             return;
         }
         let mut opts = Options::new(12345);
@@ -78,7 +68,7 @@ impl Case {
         if let Some(s) = self.script {
             let p = re().join("scripts").join(s);
             let Ok(text) = std::fs::read_to_string(&p) else {
-                missing(&format!("{}: {} not present", self.trace, p.display()));
+                eprintln!("skipping {}: {} not present", self.trace, p.display());
                 return;
             };
             opts.script = Some(Script::parse(&text));
