@@ -11,7 +11,7 @@ ep-core = { path = "../ep-core" }
 ep-metal = { path = "../ep-metal" }
 objc2 = "0.6.5"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSDictionary", "NSGeometry", "NSRunLoop", "NSString", "NSTimer", "std"] }
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSAppearance", "NSApplication", "NSBitmapImageRep", "NSBox", "NSButton", "NSButtonCell", "NSCell", "NSColor", "NSControl", "NSCursor", "NSEvent", "NSFont", "NSFontDescriptor", "NSGraphics", "NSGridView", "NSImage", "NSImageRep", "NSLayoutAnchor", "NSLayoutConstraint", "NSPanel", "NSResponder", "NSRunningApplication", "NSScreen", "NSSegmentedControl", "NSSlider", "NSSliderCell", "NSStackView", "NSText", "NSTextField", "NSUserInterfaceLayout", "NSView", "NSWindow", "objc2-core-foundation", "objc2-quartz-core", "std"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSAppearance", "NSApplication", "NSBitmapImageRep", "NSBox", "NSButton", "NSButtonCell", "NSCell", "NSColor", "NSControl", "NSCursor", "NSEvent", "NSFont", "NSFontDescriptor", "NSGraphics", "NSGridView", "NSImage", "NSImageRep", "NSLayoutAnchor", "NSLayoutConstraint", "NSMenu", "NSMenuItem", "NSPanel", "NSResponder", "NSRunningApplication", "NSScreen", "NSSegmentedControl", "NSSlider", "NSSliderCell", "NSStackView", "NSText", "NSTextField", "NSUserInterfaceLayout", "NSView", "NSWindow", "objc2-core-foundation", "objc2-quartz-core", "std"] }
 objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["CADisplayLink", "std"] }
 png = "0.18.1"
 

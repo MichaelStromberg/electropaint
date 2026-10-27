@@ -351,7 +351,10 @@ impl Remastered {
         let trail = !smearing.is_empty();
         // The two groups have depth buffers of their own, so where strands
         // that smear and strands that don't meet, the latter are in front.
-        if trail {
+        // A refresh with no new step (another strand's in-between picture, or
+        // a resize) finds the smearing strands on their trail already; laying
+        // them on again would thicken their edges.
+        if trail && (steps > 0 || t.trail_fresh) {
             self.encode_strand(cb, t, &view, smearing, buffers);
             self.encode_trail(cb, t, steps, gathered.fade);
         }

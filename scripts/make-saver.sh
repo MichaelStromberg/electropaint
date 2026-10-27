@@ -5,7 +5,12 @@
 #   cp -R target/saver/*.saver ~/Library/Screen\ Savers/
 set -eu
 cd "$(dirname "$0")/.."
-version=$(cargo metadata --format-version 1 --no-deps | sed -n 's/.*"name":"ep-saver","version":"\([^"]*\)".*/\1/p')
+# Where cargo builds (CARGO_TARGET_DIR or a config can move it from target/).
+meta=$(cargo metadata --format-version 1 --no-deps)
+release=$(printf '%s' "$meta" | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')/release
+version=$(cargo pkgid -p ep-saver)
+version=${version##*[#@]}
+[ -n "$version" ] && [ "$release" != /release ] || { echo "make-saver: cargo metadata failed" >&2; exit 1; }
 
 # saver NAME EXECUTABLE BUNDLE-ID PRINCIPAL-CLASS [CARGO-FEATURES]
 saver() {
@@ -14,7 +19,9 @@ saver() {
 	bundle="target/saver/$name.saver"
 	rm -rf "$bundle"
 	mkdir -p "$bundle/Contents/MacOS"
-	cp target/release/libep_saver.dylib "$bundle/Contents/MacOS/$exe"
+	cp "$release/libep_saver.dylib" "$bundle/Contents/MacOS/$exe"
+	# The build just made, not another (another cargo run can replace it).
+	grep -aq "$class" "$bundle/Contents/MacOS/$exe" || { echo "make-saver: $exe lacks $class" >&2; exit 1; }
 	# Each its own identity, as both can be loaded into one process.
 	install_name_tool -id "@loader_path/$exe" "$bundle/Contents/MacOS/$exe"
 	cat > "$bundle/Contents/Info.plist" <<PLIST
@@ -28,8 +35,8 @@ saver() {
 	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
 	<key>CFBundleName</key><string>$name</string>
 	<key>CFBundlePackageType</key><string>BNDL</string>
-	<key>CFBundleShortVersionString</key><string>${version:-0.1.0}</string>
-	<key>CFBundleVersion</key><string>${version:-0.1.0}</string>
+	<key>CFBundleShortVersionString</key><string>$version</string>
+	<key>CFBundleVersion</key><string>$version</string>
 	<key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>NSPrincipalClass</key><string>$class</string>
 </dict>

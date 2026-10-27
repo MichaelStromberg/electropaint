@@ -192,7 +192,9 @@ fragment float4 shade_fragment(Shaded in [[stage_in]], constant View &view [[buf
     if (dot(n, v) < 0.0) {
         n = -n; // the back of a ribbon, or a tile seen edge-on
     }
-    float n_v = max(dot(n, v), 1e-3);
+    // Clamped above too: rounding can take the dot product just past 1, and
+    // pow of the negative 1 - n_v below is NaN, which the trail would keep.
+    float n_v = clamp(dot(n, v), 1e-3, 1.0);
     const float rough = 0.10;
     float a = rough * rough;
 

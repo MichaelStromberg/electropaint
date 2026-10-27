@@ -15,8 +15,8 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSCursor, NSEvent, NSScreen,
-    NSView, NSWindow, NSWindowStyleMask,
+    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSCursor, NSEvent,
+    NSEventModifierFlags, NSMenu, NSMenuItem, NSScreen, NSView, NSWindow, NSWindowStyleMask,
 };
 use objc2_foundation::{NSPoint, NSRect, NSRunLoop, NSRunLoopCommonModes, NSSize, NSString};
 use objc2_quartz_core::CADisplayLink;
@@ -177,7 +177,12 @@ fn number<T: std::str::FromStr>(v: Option<String>, what: &str) -> Result<T, Stri
 fn write_snapshot(snap: &Snapshot, opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
     let count = opts.strands().count(snap.width as f64, snap.height as f64);
     let base = seed_base(opts);
-    let frames = |index: usize| snapshot_frames(snap, show_options(opts, base + index as i64));
+    let frames = |index: usize| {
+        let mut show = show_options(opts, base + index as i64);
+        // Only remastered draws from scenes; a snapshot can't switch style.
+        show.scene = opts.style == Style::Remastered;
+        snapshot_frames(snap, show)
+    };
     let mut rgb = vec![0; snap.width * snap.height * 3];
     let mut paste =
         |bgra: &[u8], x: usize, width: usize| paste(&mut rgb, snap.width, bgra, x, width);
@@ -389,17 +394,23 @@ impl ShowView {
     }
 
     /// Fullscreen: any key quits. Windowed: keys are ep's own shortcuts,
-    /// and Esc (or ep's exit) quits.
+    /// and Esc (or ep's exit) quits. Command-key chords aren't ep's (the
+    /// menu has taken the ones it knows, such as ⌘Q).
     fn key(&self, event: &NSEvent) {
         let chars = event
             .charactersIgnoringModifiers()
             .map(|s| s.to_string())
             .unwrap_or_default();
+        let command = event
+            .modifierFlags()
+            .contains(NSEventModifierFlags::Command);
         let quitting = {
             let mut state = self.ivars().borrow_mut();
             let Some(st) = state.as_mut() else { return };
             if st.quit_on_input || chars == "\u{1b}" {
                 true
+            } else if command {
+                false
             } else {
                 let mut show = st.shows[st.main].borrow_mut();
                 for c in chars.chars() {
@@ -431,6 +442,27 @@ impl ShowView {
             quit(MainThreadMarker::from(self));
         }
     }
+}
+
+/// The menu bar: the app menu, with Quit (⌘Q).
+fn main_menu(mtm: MainThreadMarker) -> Retained<NSMenu> {
+    let bar = NSMenu::new(mtm);
+    let app_item = NSMenuItem::new(mtm);
+    let app_menu = NSMenu::new(mtm);
+    // SAFETY: `terminate:` is NSApplication's, which the menu item sends up
+    // the responder chain to the app.
+    let quit = unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(
+            NSMenuItem::alloc(mtm),
+            &NSString::from_str("Quit electropaint"),
+            Some(sel!(terminate:)),
+            &NSString::from_str("q"),
+        )
+    };
+    app_menu.addItem(&quit);
+    app_item.setSubmenu(Some(&app_menu));
+    bar.addItem(&app_item);
+    bar
 }
 
 /// Quits the app, which ends the process.
@@ -530,6 +562,7 @@ fn main() {
     }
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    app.setMainMenu(Some(&main_menu(mtm)));
 
     let interactive = opts.windowed || opts.controls;
     // Kept alive while the app runs, which is until it quits the process.
