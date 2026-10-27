@@ -100,3 +100,27 @@ fn a_stopped_step_draws_no_new_scene() {
     assert!(drawn <= 2, "{drawn}");
     assert!(s.tick().scene.is_none());
 }
+
+#[test]
+fn switching_smear_on_still_records_the_step() {
+    let mut s = sim(true, false);
+    for _ in 0..50 {
+        s.tick();
+    }
+    s.press(ids::SMEAR);
+    // The press is handled in the next step, which then draws as smear.
+    let scenes: Vec<_> = (0..3).map(|_| s.tick().scene.expect("a scene")).collect();
+    assert!(scenes.iter().all(|sc| !sc.tiles.is_empty()));
+    assert!(scenes.last().is_some_and(|sc| sc.smear));
+}
+
+#[test]
+fn in_betweens_leave_the_next_scene_alone() {
+    let (mut a, mut b) = (sim(true, false), sim(true, false));
+    for _ in 0..50 {
+        a.tick();
+        b.tick();
+    }
+    assert!(a.frame_between(0.3).is_some());
+    assert_eq!(a.tick().scene, b.tick().scene);
+}

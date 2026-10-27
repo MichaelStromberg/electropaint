@@ -23,6 +23,9 @@ pub(super) struct MeshVertex {
     pub(super) normal: [f32; 4],
 }
 
+// The shaders' layouts: a mismatch would draw garbage, not fail.
+const _: () = assert!(size_of::<MeshVertex>() == 32 && size_of::<RibbonVertex>() == 48);
+
 /// Layout matches `RibbonVertex` in remastered.metal.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -200,5 +203,27 @@ mod tests {
                 assert!((len - 1.0).abs() < 1e-4, "{n:?}");
             }
         }
+    }
+
+    #[test]
+    fn a_ribbon_is_a_quad_between_neighbouring_slots() {
+        let edge = |z: f32| [[0.0, 0.0, z], [0.2, 0.0, z]];
+        let ribbon = Ribbon {
+            // The third slot repeats the second: a flat quad, left out.
+            edges: vec![edge(0.0), edge(-0.1), edge(-0.1), edge(-0.2)],
+            colours: vec![[1.0, 0.0, 0.0, 1.0]; 4],
+            hues: vec![0.1, 0.2, 0.3, 0.4],
+        };
+        let mut out = Vec::new();
+        ribbon_strip(&mut out, &ribbon, 1.0);
+        assert_eq!(out.len(), 6 * 2);
+        // Moved sideways, facing up or down, with the newer slot's hue.
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-6;
+        assert!(
+            out.iter()
+                .all(|v| near(v.pos[0], 1.0) || near(v.pos[0], 1.2))
+        );
+        assert!(out.iter().all(|v| near(v.normal[1].abs(), 1.0)));
+        assert!(near(out[0].normal[3], 0.1) && near(out[6].normal[3], 0.3));
     }
 }

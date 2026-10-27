@@ -1,6 +1,7 @@
 //! Renders small synthetic frames offscreen and checks pixels.
 
 use ep_core::frame::{DrawBuffer, DrawState, Frame, Op, Projection, Vertex};
+use ep_metal::remastered::Remastered;
 use ep_metal::{Renderer, RendererError};
 
 const W: usize = 128;
@@ -198,5 +199,30 @@ fn sizes_metal_cannot_make_are_errors() -> Result<(), RendererError> {
         );
     }
     assert_eq!(r.render_offscreen(16384, 8, &[])?.len(), 16384 * 8 * 4);
+    Ok(())
+}
+
+/// A smearing show's frames, with scenes, for the remastered renderer.
+fn smearing_show(seed: i64, ticks: usize) -> Vec<Frame> {
+    let mut opts = ep_core::Options::new(seed);
+    opts.scene = true;
+    let mut sim = ep_core::Sim::new(opts);
+    sim.press(ep_core::ids::SMEAR);
+    (0..ticks).map(|_| sim.tick()).collect()
+}
+
+#[test]
+fn remastered_snapshots_repeat_and_check_their_size() -> Result<(), RendererError> {
+    let mut r = Remastered::system_default()?;
+    let strands = [smearing_show(1, 60), smearing_show(2, 60)];
+    // The second picture doesn't start on the first one's trail.
+    let first = r.render_offscreen(W, H, &strands)?;
+    assert_eq!(r.render_offscreen(W, H, &strands)?, first);
+    assert!(first.iter().any(|&b| b > 0), "something drawn");
+    // No shows: just the backdrop.
+    assert_eq!(r.render_offscreen(W, H, &[])?.len(), W * H * 4);
+    for (w, h) in [(0, H), (16385, H)] {
+        assert!(r.render_offscreen(w, h, &strands).is_err(), "{w}x{h}");
+    }
     Ok(())
 }

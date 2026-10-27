@@ -1,6 +1,8 @@
-//! Metal renderer for electropaint [`Frame`]s.
+//! Metal renderers for electropaint [`Frame`]s: [`Renderer`], the classic
+//! picture described here, and [`remastered::Remastered`], a modern one.
+//! [`surface::Surface`] hosts either in a view, with one or more shows.
 //!
-//! It emulates the parts of an SGI double-buffered RGB visual that ep relies
+//! The classic renderer emulates the parts of an SGI double-buffered RGB visual that ep relies
 //! on: two persistent colour buffers that `swapbuffers` exchanges (so smear
 //! trails survive), front/back write enables, `clear()` as an unblended
 //! full-viewport fill that honours the 16x16 stipple pattern, and a z-buffer
@@ -93,8 +95,8 @@ struct Pipelines {
     depth_overwrite: Retained<DepthState>,
 }
 
-/// Why a [`Renderer`] (or a [`surface::Surface`]) could not be set up, or
-/// [`Renderer::render_offscreen`] could not draw.
+/// Why a renderer (or a [`surface::Surface`]) could not be set up, or an
+/// offscreen picture could not be drawn.
 #[derive(Debug)]
 pub enum RendererError {
     NoDevice,

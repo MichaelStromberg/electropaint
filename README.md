@@ -30,7 +30,7 @@ This fills the main display; any key or click quits. Other options:
 | `--quad` | four mirrored strands (ep's `-q`) |
 | `--script FILE` | run an ep script instead of the built-in show (ep's `-a`) |
 | `--seed N` | fixed random seed (the original seeds from the clock) |
-| `--strands N`, `--strands auto` | N shows side by side, each with its own seed; `auto` fits as many as the screen is wide (three on a 32:9 display). The default is 1 in the classic style and `auto` in remastered |
+| `--strands N`, `--strands auto` | N shows side by side, each with its own seed; `auto` fits as many as the screen is wide (three on a 32:9 display). The default is 1 in the classic style and `auto` in remastered. Keys and the control panel drive the middle strand |
 | `--snapshot FILE.png --frames N --size WxH` | render offscreen and save the picture after about N 60 Hz retraces (default 600, at 1280x1024) |
 
 With `--windowed` or `--controls` the show takes input as ep did: keys are
@@ -42,7 +42,8 @@ control panel.
 
 `--style remastered`, or the switch at the bottom of the control panel,
 keeps ep's show and draws it as a modern renderer would. The simulation is
-the same, so every tile goes where ep put it, and every control still works.
+the same, so every tile goes where ep put it, and the controls work as in
+ep, except where noted below.
 
 - Each tile is a slab of polished metal with rounded edges, coloured by
   its slot's colour under a thin iridescent film whose thickness follows
@@ -52,10 +53,13 @@ the same, so every tile goes where ep put it, and every control still works.
   wider. A tile with an outline and no fill is just the glowing frame.
 - Ribbons are a swept metal band.
 - Smear leaves trails that fade over a second or two, and fade makes
-  them fade faster. Lighting and the z-buffer are always on.
+  them fade faster; smooth draws as plain smear. Lighting and the z-buffer
+  are always on.
 - It draws in floating point with 4x multisampling and bloom. On an XDR
   or HDR display the highlights go brighter than SDR white.
-- Several strands share one space and one camera.
+- Several strands share one space and one camera. Keys, clicks and the
+  control panel drive the middle strand; the others run their own shows,
+  as separate copies of ep would.
 
 ### Timing
 

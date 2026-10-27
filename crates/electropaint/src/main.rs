@@ -179,19 +179,8 @@ fn write_snapshot(snap: &Snapshot, opts: &Options) -> Result<(), Box<dyn std::er
     let base = seed_base(opts);
     let frames = |index: usize| snapshot_frames(snap, show_options(opts, base + index as i64));
     let mut rgb = vec![0; snap.width * snap.height * 3];
-    let mut paste = |bgra: &[u8], x: usize, width: usize| {
-        for (y, row) in bgra.chunks_exact(width * 4).enumerate() {
-            let out = &mut rgb[(y * snap.width + x) * 3..][..width * 3];
-            for (o, p) in out
-                .as_chunks_mut::<3>()
-                .0
-                .iter_mut()
-                .zip(row.as_chunks::<4>().0)
-            {
-                *o = [p[2], p[1], p[0]];
-            }
-        }
-    };
+    let mut paste =
+        |bgra: &[u8], x: usize, width: usize| paste(&mut rgb, snap.width, bgra, x, width);
     match opts.style {
         // Each strand is a picture of its own.
         Style::Classic => {
@@ -222,6 +211,22 @@ fn write_snapshot(snap: &Snapshot, opts: &Options) -> Result<(), Box<dyn std::er
     encoder.set_color(png::ColorType::Rgb);
     encoder.write_header()?.write_image_data(&rgb)?;
     Ok(())
+}
+
+/// Copies `bgra` (BGRA8 rows `width` pixels wide) into `rgb` (RGB8 rows
+/// `rgb_width` wide) with its left edge at `x`.
+fn paste(rgb: &mut [u8], rgb_width: usize, bgra: &[u8], x: usize, width: usize) {
+    for (y, row) in bgra.chunks_exact(width * 4).enumerate() {
+        let out = &mut rgb[(y * rgb_width + x) * 3..][..width * 3];
+        for (o, p) in out
+            .as_chunks_mut::<3>()
+            .0
+            .iter_mut()
+            .zip(row.as_chunks::<4>().0)
+        {
+            *o = [p[2], p[1], p[0]];
+        }
+    }
 }
 
 /// A snapshot's show: its frames up to `snap.frames` retraces.
@@ -630,6 +635,17 @@ mod tests {
             (s.path.as_str(), s.frames, s.width, s.height),
             ("a.png", 5, 64, 32)
         );
+    }
+
+    #[test]
+    fn strands_paste_side_by_side_as_rgb() {
+        // Two 2x2 strands (BGRA: blue and red) into a 4x2 RGB picture.
+        let (blue, red) = ([255, 0, 0, 255].repeat(4), [0, 0, 255, 255].repeat(4));
+        let mut rgb = vec![0; 4 * 2 * 3];
+        paste(&mut rgb, 4, &blue, 0, 2);
+        paste(&mut rgb, 4, &red, 2, 2);
+        let row = [[0, 0, 255], [0, 0, 255], [255, 0, 0], [255, 0, 0]].concat();
+        assert_eq!(rgb, [row.clone(), row].concat());
     }
 
     #[test]

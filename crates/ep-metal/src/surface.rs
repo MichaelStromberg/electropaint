@@ -311,5 +311,12 @@ mod tests {
         let widths: Vec<_> = (0..3).map(|i| region(100, 3, i)).collect();
         assert_eq!(widths, [(0, 33), (33, 33), (66, 34)]);
         assert_eq!(region(640, 1, 0), (0, 640));
+        // More strands than pixels: some are empty (`Classic` takes no more
+        // strands than pixels across).
+        assert_eq!(region(2, 3, 0).1, 0);
+        assert_eq!(Strands::Count(5).count(7680.0, 2160.0), 5);
+        assert_eq!(Style::Remastered.strands().count(7680.0, 2160.0), 3);
+        assert_eq!(Style::Classic.strands().count(7680.0, 2160.0), 1);
+        assert_eq!(main_strand(3), 1);
     }
 }

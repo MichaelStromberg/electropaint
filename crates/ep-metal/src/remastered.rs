@@ -7,6 +7,9 @@
 //! range where the display has it. The choreography is ep's: the same
 //! simulation decides where every tile goes. The shaders are in
 //! `remastered.metal`.
+//!
+//! It needs an Apple GPU (Apple silicon): the trail is built with
+//! framebuffer fetch and the multisampled targets are memoryless.
 
 use ep_core::Frame;
 use ep_core::scene::{Scene, Shape, Tile};
@@ -76,6 +79,10 @@ struct Instance {
     flags: u32,
     pad: [f32; 2],
 }
+
+// The shaders' layouts: a mismatch would draw garbage, not fail.
+const _: () =
+    assert!(size_of::<View>() == 80 && size_of::<Instance>() == 112 && size_of::<Post>() == 64);
 
 const FILL: u32 = 1;
 const OUTLINE: u32 = 2;
@@ -771,5 +778,84 @@ impl Pipelines {
                 .newDepthStencilStateWithDescriptor(&depth)
                 .ok_or(RendererError::Create("depth state"))?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tile(shape: Shape) -> Tile {
+        let mut model_view = [0.0; 16];
+        for i in 0..4 {
+            model_view[i * 5] = 1.0;
+        }
+        Tile {
+            model_view,
+            shape,
+            fill: Some([1.0; 4]),
+            outline: None,
+            fat: false,
+            hue: 0.5,
+            light: 0.5,
+            age: 0,
+            copy: 0,
+        }
+    }
+
+    /// A strand's slot: a scene with a triangle and a square.
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "a strand's slot, which can also be empty"
+    )]
+    fn scene(smear: bool, background: f32) -> Option<Box<Scene>> {
+        Some(Box::new(Scene {
+            tiles: vec![tile(Shape::Triangle), tile(Shape::Square)],
+            background: [background, 0.0, 0.0, 1.0],
+            smear,
+            ..Scene::default()
+        }))
+    }
+
+    /// Where each instance was moved sideways to.
+    fn offsets(g: &Gathered) -> Vec<f32> {
+        g.instances.iter().map(|i| i.model_view[12]).collect()
+    }
+
+    #[test]
+    fn strands_spread_across_the_view_squares_first() {
+        let half = DISTANCE * HALF_FOVY.tan() * 3.0;
+        let g = gather(
+            &[scene(false, 0.0), scene(false, 1.0), scene(false, 0.0)],
+            3.0,
+        );
+        let [smearing, still] = g.groups;
+        assert!(smearing.is_empty());
+        assert_eq!((still.first, still.squares, still.triangles), (0, 3, 3));
+        let third = half * 2.0 / 3.0;
+        for (got, want) in offsets(&g)
+            .iter()
+            .zip([-third, 0.0, third, -third, 0.0, third])
+        {
+            assert!((got - want).abs() < 1e-4, "{got} {want}");
+        }
+        // The middle strand's background.
+        assert_eq!(g.background[0], 1.0);
+        let one = gather(&[scene(false, 0.0)], 1.25);
+        assert_eq!(offsets(&one), [0.0, 0.0]);
+    }
+
+    #[test]
+    fn only_strands_that_smear_leave_trails() {
+        let g = gather(&[scene(false, 0.0), scene(true, 0.0), None], 2.0);
+        let [smearing, still] = g.groups;
+        assert_eq!(
+            (smearing.first, smearing.squares, smearing.triangles),
+            (0, 1, 1)
+        );
+        assert_eq!((still.first, still.squares, still.triangles), (2, 1, 1));
+        // The middle strand has a scene; with none there, the first that does.
+        let g = gather(&[scene(false, 0.5), None, scene(false, 1.0)], 2.0);
+        assert_eq!(g.background[0], linear([0.5; 4])[0]);
     }
 }
