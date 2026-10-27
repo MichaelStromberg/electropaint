@@ -1,5 +1,6 @@
 //! electropaint for macOS: fullscreen on the main display (or every
-//! display), until a key press or click.
+//! display) until a key press or click, or interactive in a window or with
+//! its control panel.
 
 mod panel;
 
@@ -116,7 +117,7 @@ const USAGE: &str = "usage: electropaint [--windowed | --all-displays] [--contro
        electropaint --snapshot FILE.png [--quad] [--script FILE] [--seed N] [--frames N] [--size WxH]
 
 --script runs an ep script (as `ep -a`) instead of the built-in show.
---snapshot saves the picture after --frames 60 Hz retraces (default 600)
+--snapshot saves the picture after about --frames 60 Hz retraces (default 600)
 at --size (default 1280x1024).
 
 Fullscreen on the main display (every display with --all-displays, each

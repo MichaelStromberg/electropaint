@@ -90,7 +90,8 @@ struct Pipelines {
     depth_overwrite: Retained<DepthState>,
 }
 
-/// Why a [`Renderer`] (or a [`surface::Surface`]) could not be set up.
+/// Why a [`Renderer`] (or a [`surface::Surface`]) could not be set up, or
+/// [`Renderer::render_offscreen`] could not draw.
 #[derive(Debug)]
 pub enum RendererError {
     NoDevice,
@@ -201,6 +202,13 @@ impl Renderer {
 
     /// Executes frames into a `width` x `height` target without a window and
     /// returns the displayed (front) buffer as BGRA8 rows, top row first.
+    ///
+    /// # Errors
+    ///
+    /// If a side is 0 or over 16384 pixels, or Metal can't allocate what
+    /// the picture needs. A size error leaves the renderer as it was; after
+    /// an allocation error its buffers no longer follow the frames, so it
+    /// should be dropped.
     pub fn render_offscreen(
         &mut self,
         width: usize,

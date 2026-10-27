@@ -71,11 +71,12 @@ the decoder starts a new frame at each `swapbuffers`). Confirmed:
   not as `1−rgb`**, so the float rounding matches.
 * Across all captured runs (default mello script, `-q`, `-S`, `-a`; 3600
   frames) **no** `lmbind`, `n3f`, `bgntmesh`, `zbuffer`/`zclear`,
-  `frontbuffer` or `setpattern` call appears. Lighting, z-buffer, ribbons,
-  smear and fade are reached only through the panel toggles (light "L",
-  z-buf "Z", ribbons "R", smear "Q"; the RGB build never adds the fade button,
-  so fade has no key and is reached by a script; actuator ids per the panel spec,
-  e.g. outline = 18, full = 29). The variant traces in §0.1 cover them.
+  `frontbuffer` or `setpattern` call appears. Lighting, z-buffer, ribbons and
+  smear are reached only through the panel toggles (light "L", z-buf "Z",
+  ribbons "R", smear "Q"; actuator ids per the panel spec, e.g. outline = 18,
+  full = 29) or a script. The RGB build never adds the fade button, so fade
+  has no key and only a script turns it on. The variant traces in §0.1 cover
+  them.
 
 ### 0.1 Variant traces: lit, z-buffer, ribbon, smear, fade, background, triangle and fat-line paths
 
