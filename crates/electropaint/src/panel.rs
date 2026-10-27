@@ -792,7 +792,15 @@ impl PanelController {
                     sim.set_value(id, s.doubleValue() as f32);
                 }
             }
-            Bind::Press(id) => sim.press(id),
+            Bind::Press(id) => {
+                sim.press(id);
+                // A press can change controls nobody touched: AppKit turns off
+                // the other radios of a group itself, and a reset moves many
+                // sliders. Show them all afresh.
+                for other in controls.iter() {
+                    other.shown.set(None);
+                }
+            }
             Bind::Puck(axis) => {
                 if let Some(s) = c.view.downcast_ref::<NSControl>() {
                     let mut p = self.ivars().puck.get();
