@@ -32,10 +32,10 @@ def decode(ops, data):
             if ext is not None:
                 n = args[int(ext[3:])] if isinstance(ext, str) else ext
                 n = n if 0 < n < 512 else 0
-                args.append(list(struct.unpack_from(">%df" % n, pay, off)))
+                args.append(list(struct.unpack_from(f">{n}f", pay, off)))
                 off += 4 * n
             elif p.endswith("*"):
-                args.append("0x%08x" % struct.unpack_from(">I", pay, off)[0])
+                args.append(f"0x{struct.unpack_from('>I', pay, off)[0]:08x}")
                 off += 4
             else:
                 f = FMT[p]
@@ -56,11 +56,11 @@ def decode(ops, data):
 
 def fmt(v):
     if isinstance(v, float):
-        return "%.9g" % v
+        return f"{v:.9g}"
     if isinstance(v, list):
         return "[" + " ".join(fmt(x) for x in v) + "]"
     if isinstance(v, tuple):
-        return "%s=%s" % (v[0], fmt(v[1]))
+        return f"{v[0]}={fmt(v[1])}"
     return str(v)
 
 
@@ -86,19 +86,19 @@ def main():
             if lo <= frame < hi:
                 c[name] += 1
                 frames = max(frames, frame)
-        print("frames: %d" % (frames + 1))
+        print(f"frames: {frames + 1}")
         for k, v in c.most_common():
-            print("%8d %s" % (v, k))
+            print(f"{v:8d} {k}")
         return
     last = -1
     for frame, name, args, ret in decode(ops, data):
         if not lo <= frame < hi:
             continue
         if frame != last:
-            print("== frame %d" % frame)
+            print(f"== frame {frame}")
             last = frame
-        s = "%s(%s)" % (name, ", ".join(fmt(x) for x in args))
-        print(s if ret is None else "%s = %s" % (s, fmt(ret)))
+        s = f"{name}({', '.join(fmt(x) for x in args)})"
+        print(s if ret is None else f"{s} = {fmt(ret)}")
 
 
 if __name__ == "__main__":

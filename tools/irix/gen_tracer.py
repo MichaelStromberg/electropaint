@@ -204,7 +204,7 @@ for op, name in enumerate(names, start=1):
     else:
         body.append("\t%s;" % call)
     if lg_out := OUTS.get(name):
-        for i, t in lg_out:
+        for i, _ctype in lg_out:
             body.append("\tif (lg && a%d) ept_u32((unsigned long)*(long *)a%d);" % (i, i))
     if ret != "void":
         logger = "ept_u32((unsigned long)r)" if ret.endswith("*") else "%s(r)" % CT[ret][2]
