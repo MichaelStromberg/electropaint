@@ -15,6 +15,11 @@ unreachable_pub = "warn"
 undocumented_unsafe_blocks = "warn"
 as_ptr_cast_mut = "warn"
 needless_pass_by_value = "warn"
+allow_attributes_without_reason = "warn"
+missing_panics_doc = "warn"
+or_fun_call = "warn"
+borrow_as_ptr = "warn"
+trivially_copy_pass_by_ref = "warn"
 # Contradicts unreachable_pub inside private modules.
 redundant_pub_crate = "allow"
 
