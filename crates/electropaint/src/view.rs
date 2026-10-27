@@ -4,8 +4,8 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use ep_metal::show::Show;
-use ep_metal::surface::{Strands, Style, Surface, main_strand};
+use electropaint_metal::show::Show;
+use electropaint_metal::surface::{Strands, Style, Surface, main_strand};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -206,7 +206,7 @@ impl ShowView {
                 st.shows[st.main]
                     .borrow_mut()
                     .sim_mut()
-                    .press(ep_core::ids::MOUSE);
+                    .press(electropaint_core::ids::MOUSE);
             }
             st.quit_on_input
         };

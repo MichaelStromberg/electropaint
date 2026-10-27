@@ -6,6 +6,10 @@ members = ["crates/*"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+authors = ["Michael Strömberg"]
+repository = "https://github.com/MichaelStromberg/electropaint"
+homepage = "https://github.com/MichaelStromberg/electropaint"
+# Each crate opts in; ep-saver (a .saver bundle) stays out.
 publish = false
 
 [workspace.lints.rust]

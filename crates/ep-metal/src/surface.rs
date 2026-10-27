@@ -318,10 +318,10 @@ mod tests {
     /// into both buffers) is picked up by classic's first renderers too.
     #[test]
     fn classic_picks_up_a_show_that_ran_in_another_style() -> Result<(), RendererError> {
-        let mut opts = ep_core::Options::new(3);
+        let mut opts = electropaint_core::Options::new(3);
         opts.scene = true;
         let mut show = Show::new(opts);
-        show.sim_mut().press(ep_core::ids::SMEAR);
+        show.sim_mut().press(electropaint_core::ids::SMEAR);
         let mut surface = Surface::new(Style::Remastered)?;
         surface.fit(NSSize::new(64.0, 48.0), 1.0, 1.0);
         for i in 0..30 {
@@ -334,7 +334,7 @@ mod tests {
         };
         assert_eq!(
             classic.renderers[0].draw_buffer,
-            ep_core::frame::DrawBuffer::Both
+            electropaint_core::frame::DrawBuffer::Both
         );
         Ok(())
     }

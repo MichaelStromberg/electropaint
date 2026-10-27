@@ -2,7 +2,7 @@
 //! first divergence with context.
 //!
 //! ```text
-//! cargo run -p ep-core --example trace_diff -- <trace> [--script FILE] [--quad] [--saver]
+//! cargo run -p electropaint-core --example trace_diff -- <trace> [--script FILE] [--quad] [--saver]
 //!     [--frames N] [--seed N] [--ops eptrace_ops.json] [--context N]
 //! ```
 //!
@@ -11,8 +11,8 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use ep_core::trace::{self, Tolerance};
-use ep_core::{Options, Script};
+use electropaint_core::trace::{self, Tolerance};
+use electropaint_core::{Options, Script};
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);

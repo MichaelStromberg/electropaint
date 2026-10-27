@@ -1,7 +1,7 @@
 //! Behaviour of the public simulation API and of the renderer frames.
 
-use ep_core::frame::{DrawBuffer, Op};
-use ep_core::{Options, Sim, SwapCause, ids};
+use electropaint_core::frame::{DrawBuffer, Op};
+use electropaint_core::{Options, Sim, SwapCause, ids};
 
 #[test]
 fn startup_and_fullscreen_swaps() {
@@ -284,7 +284,7 @@ fn actuator_metadata() {
     let a = sim.actuator(ids::SMEAR).unwrap();
     assert_eq!(a.label, Some("smear (Q)"));
     assert_eq!(a.key, Some('Q'));
-    assert_eq!(a.panel, Some(ep_core::Panel::Main));
+    assert_eq!(a.panel, Some(electropaint_core::Panel::Main));
     let z = sim.actuator(ids::ZOOM).unwrap();
     assert_eq!((z.min, z.max, z.initval), (-0.5, 0.5, 0.0));
     let s = sim.controls().slider_of(ids::ZOOM + 4).unwrap();

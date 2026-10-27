@@ -11,9 +11,9 @@
 //! It needs an Apple GPU (Apple silicon): the trail is built with
 //! framebuffer fetch and the multisampled targets are memoryless.
 
-use ep_core::Frame;
-use ep_core::frame::Projection;
-use ep_core::scene::{Scene, Shape, Tile};
+use electropaint_core::Frame;
+use electropaint_core::frame::Projection;
+use electropaint_core::scene::{Scene, Shape, Tile};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_core_foundation::CFRetained;

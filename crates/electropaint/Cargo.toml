@@ -1,14 +1,20 @@
 [package]
 name = "electropaint"
-description = "SGI electropaint for macOS: fullscreen, windowed or with its control panel"
+description = "SGI's electropaint demo from IRIX, ported to macOS in Rust and Metal: bit-exact to the original, with a remastered HDR mode"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["sgi", "irix", "demo", "screensaver", "metal"]
+categories = ["graphics", "rendering", "simulation", "os::macos-apis"]
+publish = true
 
 [dependencies]
-ep-core = { path = "../ep-core" }
-ep-metal = { path = "../ep-metal" }
+electropaint-core = { path = "../ep-core", version = "0.1.0" }
+electropaint-metal = { path = "../ep-metal", version = "0.1.0" }
 objc2 = "0.6.5"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSDictionary", "NSGeometry", "NSRunLoop", "NSString", "NSTimer", "std"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSAppearance", "NSApplication", "NSBitmapImageRep", "NSBox", "NSButton", "NSButtonCell", "NSCell", "NSColor", "NSControl", "NSCursor", "NSEvent", "NSFont", "NSFontDescriptor", "NSGraphics", "NSGridView", "NSImage", "NSImageRep", "NSLayoutAnchor", "NSLayoutConstraint", "NSMenu", "NSMenuItem", "NSPanel", "NSResponder", "NSRunningApplication", "NSScreen", "NSSegmentedControl", "NSSlider", "NSSliderCell", "NSStackView", "NSText", "NSTextField", "NSUserInterfaceLayout", "NSView", "NSWindow", "objc2-core-foundation", "objc2-quartz-core", "std"] }

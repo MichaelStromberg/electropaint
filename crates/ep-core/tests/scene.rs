@@ -1,6 +1,6 @@
 //! The scene recorded beside the drawing (`Options::scene`).
 
-use ep_core::{Options, Sim, ids};
+use electropaint_core::{Options, Sim, ids};
 
 fn sim(scene: bool, quad: bool) -> Sim {
     let mut opts = Options::new(7);

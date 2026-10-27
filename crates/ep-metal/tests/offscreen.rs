@@ -1,8 +1,8 @@
 //! Renders small synthetic frames offscreen and checks pixels.
 
-use ep_core::frame::{DrawBuffer, DrawState, Frame, Op, Projection, Vertex};
-use ep_metal::remastered::Remastered;
-use ep_metal::{Renderer, RendererError};
+use electropaint_core::frame::{DrawBuffer, DrawState, Frame, Op, Projection, Vertex};
+use electropaint_metal::remastered::Remastered;
+use electropaint_metal::{Renderer, RendererError};
 
 const W: usize = 128;
 const H: usize = 128;
@@ -204,10 +204,10 @@ fn sizes_metal_cannot_make_are_errors() -> Result<(), RendererError> {
 
 /// A smearing show's frames, with scenes, for the remastered renderer.
 fn smearing_show(seed: i64, ticks: usize) -> Vec<Frame> {
-    let mut opts = ep_core::Options::new(seed);
+    let mut opts = electropaint_core::Options::new(seed);
     opts.scene = true;
-    let mut sim = ep_core::Sim::new(opts);
-    sim.press(ep_core::ids::SMEAR);
+    let mut sim = electropaint_core::Sim::new(opts);
+    sim.press(electropaint_core::ids::SMEAR);
     (0..ticks).map(|_| sim.tick()).collect()
 }
 

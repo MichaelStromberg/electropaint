@@ -808,7 +808,7 @@ Traces: `re/tracer/ep_long.trace`, 3600 frames, default flags, `time() = 12345`,
 with `tools/irix/eptrace_dump.py`. Run the check with:
 `python re/tools/check_trace.py re/ghidra/ep-irix53 <decoded.txt> 12345`.
 That checker was for the Python model; the Rust port is checked against the same traces
-by `cargo test -p ep-core --test traces` (docs/ground-truth.md).
+by `cargo test -p electropaint-core --test traces` (docs/ground-truth.md).
 `re/tracer/dump-o.txt` (`ep -o`) matches the parsed tables in §1.4 line for line, including
 `seq N at 0.00` and every `cmd` line, and the actuator table confirms ids 17, 18, 29, 31, 38,
 52, 73, 80, 87, 94, 101, 108 (labels) and 123/127/130 (unlabelled colour sub-actuators).

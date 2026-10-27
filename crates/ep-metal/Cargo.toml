@@ -1,13 +1,22 @@
 [package]
-name = "ep-metal"
-description = "Metal renderers for electropaint: classic (an IrisGL-style double-buffered target) and remastered"
+name = "electropaint-metal"
+description = "Metal renderers for electropaint: classic, as an SGI RGB visual drew it, and remastered, as HDR iridescent chrome"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["sgi", "irix", "metal", "hdr", "demo"]
+categories = ["rendering", "graphics", "os::macos-apis"]
+publish = true
+
+[package.metadata.docs.rs]
+targets = ["aarch64-apple-darwin"]
 
 [dependencies]
-ep-core = { path = "../ep-core" }
+electropaint-core = { path = "../ep-core", version = "0.1.0" }
 objc2 = "0.6.5"
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std"] }
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["CGColorSpace", "std"] }

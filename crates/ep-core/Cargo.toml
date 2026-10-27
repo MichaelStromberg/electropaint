@@ -1,10 +1,16 @@
 [package]
-name = "ep-core"
-description = "electropaint simulation: script, sequencer, actuators and an IrisGL-style frame recorder"
+name = "electropaint-core"
+description = "The simulation behind electropaint, SGI's IRIX demo: its script, sequencer and actuators, and an IrisGL emulation that reproduces the original's calls bit for bit"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["sgi", "irix", "irisgl", "demo", "simulation"]
+categories = ["simulation", "graphics", "emulators"]
+publish = true
 
 [dependencies]
 

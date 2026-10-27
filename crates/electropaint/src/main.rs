@@ -10,8 +10,8 @@ mod view;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use ep_metal::show::Show;
-use ep_metal::surface::Style;
+use electropaint_metal::show::Show;
+use electropaint_metal::surface::Style;
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
 use objc2_app_kit::{

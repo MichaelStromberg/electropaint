@@ -1,8 +1,8 @@
 //! In-between pictures: at the ends of a tick they reproduce the pictures the
 //! simulation actually drew.
 
-use ep_core::frame::{Frame, Op, Vertex};
-use ep_core::{Options, Sim};
+use electropaint_core::frame::{Frame, Op, Vertex};
+use electropaint_core::{Options, Sim};
 
 /// All vertices of a frame's draws, in order.
 fn vertices(f: &Frame) -> Vec<Vertex> {

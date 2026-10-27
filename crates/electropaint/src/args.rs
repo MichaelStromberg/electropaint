@@ -1,6 +1,6 @@
 //! The command line: what it asks for, and its usage text.
 
-use ep_metal::surface::{Strands, Style};
+use electropaint_metal::surface::{Strands, Style};
 
 /// What the command line asks for.
 pub(crate) struct Options {
@@ -10,7 +10,7 @@ pub(crate) struct Options {
     /// Hidden: `--panel-snapshot FILE` draws the control panel to PNGs.
     pub(crate) panel_snapshot: Option<String>,
     pub(crate) quad: bool,
-    pub(crate) script: Option<ep_core::Script>,
+    pub(crate) script: Option<electropaint_core::Script>,
     pub(crate) seed: Option<i64>,
     pub(crate) snapshot: Option<Snapshot>,
     /// `None` for the style's own default: one strand in classic, as many
@@ -21,8 +21,8 @@ pub(crate) struct Options {
 
 impl Options {
     /// The options for each show: ep's, with this run's flags and script.
-    pub(crate) fn show_options(&self, seed: i64) -> ep_core::Options {
-        let mut o = ep_core::Options::new(seed);
+    pub(crate) fn show_options(&self, seed: i64) -> electropaint_core::Options {
+        let mut o = electropaint_core::Options::new(seed);
         // Remastered draws from scenes; recording them always lets the style
         // change while the show runs.
         o.scene = true;
@@ -35,7 +35,8 @@ impl Options {
 
     /// The first show's seed: `--seed`, or the clock as the original does.
     pub(crate) fn seed_base(&self) -> i64 {
-        self.seed.unwrap_or_else(ep_core::Options::clock_seed)
+        self.seed
+            .unwrap_or_else(electropaint_core::Options::clock_seed)
     }
 
     pub(crate) fn strands(&self) -> Strands {
@@ -99,7 +100,7 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Options>, Stri
             "--script" => {
                 let path = args.next().ok_or("--script needs a file")?;
                 let text = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
-                opts.script = Some(ep_core::Script::parse(&text));
+                opts.script = Some(electropaint_core::Script::parse(&text));
             }
             "--seed" => opts.seed = Some(number(args.next(), "--seed")?),
             "--snapshot" => snapshot = Some(args.next().ok_or("--snapshot needs a file")?),

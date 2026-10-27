@@ -10,9 +10,9 @@
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicI64, Ordering};
 
-use ep_core::Options;
-use ep_metal::show::Show;
-use ep_metal::surface::{Style, Surface};
+use electropaint_core::Options;
+use electropaint_metal::show::Show;
+use electropaint_metal::surface::{Style, Surface};
 use objc2::rc::{Allocated, Retained};
 use objc2::runtime::{AnyObject, Bool};
 use objc2::{ClassType, DefinedClass, MainThreadOnly, define_class, msg_send, sel};

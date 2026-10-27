@@ -3,7 +3,7 @@
 
 use std::cell::Cell;
 
-use ep_core::ids;
+use electropaint_core::ids;
 use objc2::rc::Retained;
 use objc2::{DefinedClass, MainThreadMarker};
 use objc2_app_kit::{

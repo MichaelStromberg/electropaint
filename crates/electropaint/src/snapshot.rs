@@ -3,10 +3,10 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use ep_metal::Renderer;
-use ep_metal::remastered::Remastered;
-use ep_metal::show::Show;
-use ep_metal::surface::{Style, region};
+use electropaint_metal::Renderer;
+use electropaint_metal::remastered::Remastered;
+use electropaint_metal::show::Show;
+use electropaint_metal::surface::{Style, region};
 use objc2::MainThreadMarker;
 
 use crate::args::{Options, Snapshot};
@@ -83,8 +83,11 @@ fn paste(rgb: &mut [u8], rgb_width: usize, bgra: &[u8], x: usize, width: usize) 
 }
 
 /// A snapshot's show: its frames up to `snap.frames` retraces.
-fn snapshot_frames(snap: &Snapshot, opts: ep_core::Options) -> Vec<ep_core::Frame> {
-    let mut sim = ep_core::Sim::new(opts);
+fn snapshot_frames(
+    snap: &Snapshot,
+    opts: electropaint_core::Options,
+) -> Vec<electropaint_core::Frame> {
+    let mut sim = electropaint_core::Sim::new(opts);
     let (mut frames, mut retraces) = (Vec::new(), 0);
     while retraces < snap.frames && !sim.exited() {
         let frame = sim.tick();

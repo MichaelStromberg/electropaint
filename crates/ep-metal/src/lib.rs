@@ -19,7 +19,7 @@ pub mod remastered;
 pub mod show;
 pub mod surface;
 
-use ep_core::frame::{DrawBuffer, DrawState, Frame, Op, Projection, Vertex};
+use electropaint_core::frame::{DrawBuffer, DrawState, Frame, Op, Projection, Vertex};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::{NSString, ns_string};
@@ -213,7 +213,7 @@ impl Renderer {
     }
 
     /// Draws a picture that is not part of ep's own sequence (an in-between
-    /// from [`ep_core::Sim::frame_between`]) into the back buffer, which is
+    /// from [`electropaint_core::Sim::frame_between`]) into the back buffer, which is
     /// then the one to show, without a swap: the next real frame (which
     /// clears the back buffer first) finds the buffers as ep left them.
     pub(crate) fn draw_between(&mut self, width: usize, height: usize, frame: &Frame) {
@@ -675,7 +675,7 @@ impl Pipelines {
 
 #[cfg(test)]
 mod tests {
-    use ep_core::{Options, Sim, ids};
+    use electropaint_core::{Options, Sim, ids};
 
     use super::*;
 

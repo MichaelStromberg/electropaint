@@ -1,8 +1,8 @@
 //! One running electropaint show: the simulation paced as the original was,
 //! at 60 Hz, with in-between pictures for faster displays.
 
-use ep_core::frame::Frame;
-use ep_core::{Options, Sim};
+use electropaint_core::frame::Frame;
+use electropaint_core::{Options, Sim};
 
 /// ep's only pacing was `swapbuffers`, which waits for vertical retrace on a
 /// 60 Hz SGI display: one swap per retrace.
@@ -144,7 +144,7 @@ mod tests {
     fn an_exited_show_stays_on_its_last_picture() {
         let mut show = Show::new(Options::new(1));
         kinds(&mut show, (0..20).map(|i| f64::from(i) / 60.0));
-        show.sim_mut().press(ep_core::ids::EXIT);
+        show.sim_mut().press(electropaint_core::ids::EXIT);
         kinds(&mut show, (20..30).map(|i| f64::from(i) / 60.0));
         assert!(show.sim().exited());
         let k = kinds(&mut show, (30..34).map(|i| f64::from(i) / 120.0 + 0.25));

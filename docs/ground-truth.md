@@ -98,14 +98,14 @@ The IRIX 6.5 build (1998) has the same strings, script and code paths as the
 
 ## Checking the Rust port
 
-`crates/ep-core` replays the traces directly: `ep_core::trace` decodes EPT1
+`crates/ep-core` replays the traces directly: `electropaint_core::trace` decodes EPT1
 with `eptrace_ops.json`, runs the simulation with the same flags, script and
 seed, and compares the two call streams frame by frame. The integration
-tests (`cargo test -p ep-core --test traces`) do this for every trace and
+tests (`cargo test -p electropaint-core --test traces`) do this for every trace and
 skip any that are missing (`EP_REQUIRE_TRACES=1` makes that a failure). For
 one trace at a time, with the first divergence shown in context:
 
-    cargo run -p ep-core --example trace_diff -- re/tracer/ep_v_zl.trace \
+    cargo run -p electropaint-core --example trace_diff -- re/tracer/ep_v_zl.trace \
         --script re/scripts/mello-zl.ep [--quad] [--saver] [--frames N]
 
 What is compared: the drawing calls (matrix, colour, vertex, primitive,

@@ -8,7 +8,7 @@
 //! [`trace`] compares with recordings of the real program.
 //!
 //! ```
-//! use ep_core::{Options, Sim};
+//! use electropaint_core::{Options, Sim};
 //! let mut sim = Sim::new(Options::new(12345));
 //! let frame = sim.tick();
 //! assert!(!frame.ops.is_empty());

@@ -4,9 +4,9 @@
 use std::cell::Cell;
 use std::time::{Duration, Instant};
 
-use ep_core::colour::hls_to_rgb;
-use ep_core::{Sim, ids};
-use ep_metal::surface::Style;
+use electropaint_core::colour::hls_to_rgb;
+use electropaint_core::{Sim, ids};
+use electropaint_metal::surface::Style;
 use objc2::rc::Retained;
 use objc2::{DefinedClass, MainThreadMarker};
 use objc2_app_kit::{

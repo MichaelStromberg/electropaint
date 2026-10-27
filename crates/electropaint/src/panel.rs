@@ -19,9 +19,9 @@ use std::cell::{Cell, OnceCell, RefCell};
 use std::rc::Rc;
 use std::time::Instant;
 
-use ep_core::ids;
-use ep_metal::show::Show;
-use ep_metal::surface::Style;
+use electropaint_core::ids;
+use electropaint_metal::show::Show;
+use electropaint_metal::surface::Style;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};

@@ -1,7 +1,7 @@
 //! The geometry Remastered draws: a tile's bevelled slab, built once, and a
 //! ribbon's band, built each picture from the scene. All on the CPU.
 
-use ep_core::scene::{Ribbon, Shape};
+use electropaint_core::scene::{Ribbon, Shape};
 
 use super::linear;
 

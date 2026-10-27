@@ -10,8 +10,8 @@ publish.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-ep-core = { path = "../ep-core" }
-ep-metal = { path = "../ep-metal" }
+electropaint-core = { path = "../ep-core", version = "0.1.0" }
+electropaint-metal = { path = "../ep-metal", version = "0.1.0" }
 objc2 = "0.6.5"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSDistributedNotificationCenter", "NSNotification", "NSRunLoop", "std"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSResponder", "NSScreen", "NSView", "NSWindow", "objc2-core-foundation", "objc2-quartz-core", "std"] }

@@ -7,8 +7,8 @@
 
 use std::path::{Path, PathBuf};
 
-use ep_core::trace::{self, Tolerance};
-use ep_core::{Options, Script};
+use electropaint_core::trace::{self, Tolerance};
+use electropaint_core::{Options, Script};
 
 fn re() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../re")
