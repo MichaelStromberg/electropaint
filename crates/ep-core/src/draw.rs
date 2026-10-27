@@ -7,8 +7,9 @@
 
 use crate::colour::hls_to_rgb;
 use crate::panel::ids;
-use crate::scene::{Ribbon, Shape, Tile};
 use crate::sim::{RING, Sim, slot};
+
+mod record;
 
 /// The square drawn per slot (`square[0..3]`).
 const SQUARE: [[f32; 2]; 4] = [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]];
@@ -47,6 +48,16 @@ fn foldtwixt(a: &[f32; RING], k: usize, t: f32, per: f64) -> f32 {
 /// A float angle in degrees to `rotate`'s tenths (truncating).
 fn tenths(deg: f32, scale: f64) -> i16 {
     (f64::from(deg) * scale) as i32 as i16
+}
+
+/// Which copy of which slot `slot_copy` draws: the slot, its values, how
+/// far along the strand it is, and which quad-mode copy.
+#[derive(Clone, Copy)]
+struct SlotCopy<'a> {
+    p: usize,
+    v: &'a SlotValues,
+    age: usize,
+    copy: u8,
 }
 
 /// The interpolated values of one slot.
@@ -134,43 +145,6 @@ impl Sim {
         self.gl.scale(v.size, v.size, 1.0);
     }
 
-    /// Starts recording a new scene, if scenes are on: `drawit` may run
-    /// twice in a step (smooth mode), and the picture left is the last.
-    fn begin_scene(&mut self) {
-        let effects = [ids::SMEAR, ids::SMOOTH, ids::FADE].map(|id| self.controls.act(id).on());
-        if let Some(scene) = &mut self.scene {
-            scene.tiles.clear();
-            scene.ribbons.clear();
-            scene.background = self.bkg_rgba;
-            [scene.smear, scene.smooth, scene.fade] = effects;
-            self.scene_drawn = true;
-        }
-    }
-
-    /// Records the copy of slot `p` that the modelview now places, the
-    /// `age`th slot along the strand.
-    fn record_tile(&mut self, p: usize, v: &SlotValues, age: usize, copy: u8) {
-        let Some(scene) = &mut self.scene else {
-            return;
-        };
-        let shape = if self.controls.act(ids::TRIANGLES).on() {
-            Shape::Triangle
-        } else {
-            Shape::Square
-        };
-        scene.tiles.push(Tile {
-            model_view: *self.gl.modelview(),
-            shape,
-            fill: self.hist.fill[p].then_some(self.col_rgba),
-            outline: self.hist.outline[p].then_some(self.outline_rgba),
-            fat: self.hist.fatline[p],
-            hue: v.hue,
-            light: v.light,
-            age: age as u16,
-            copy,
-        });
-    }
-
     /// `drawit`: the default square (or triangle) strand.
     pub(crate) fn drawit(&mut self) {
         self.begin_scene();
@@ -197,7 +171,12 @@ impl Sim {
             self.gl.linewidth(if self.hist.fatline[p] { 3 } else { 1 });
             let rs = tenths(v.spin, 10.0);
             let rf = tenths(v.flip, 10.0);
-            let copy = |c| (p, &v, (age, c));
+            let copy = |copy| SlotCopy {
+                p,
+                v: &v,
+                age,
+                copy,
+            };
             self.slot_copy(copy(0), rs, rf, lit, amb, shiny);
             if self.quad {
                 // Copies 2-4 mirror in y, rotate by 180 degrees, mirror
@@ -225,21 +204,12 @@ impl Sim {
     }
 
     /// One copy of a slot's shape: fill, then outline in the complementary
-    /// colour, then the fill colour again. `slot` is the slot, its values,
-    /// and its age and copy number for the scene.
-    fn slot_copy(
-        &mut self,
-        slot: (usize, &SlotValues, (usize, u8)),
-        rs: i16,
-        rf: i16,
-        lit: bool,
-        amb: f32,
-        shiny: f32,
-    ) {
-        let (p, v, (age, copy)) = slot;
+    /// colour, then the fill colour again.
+    fn slot_copy(&mut self, slot: SlotCopy<'_>, rs: i16, rf: i16, lit: bool, amb: f32, shiny: f32) {
+        let p = slot.p;
         self.gl.pushmatrix();
-        self.slot_transform(v, rs, rf);
-        self.record_tile(p, v, age, copy);
+        self.slot_transform(slot.v, rs, rf);
+        self.record_tile(&slot);
         if self.controls.act(ids::LIGHT).on() {
             self.gl.n3f(NORMAL);
         }
@@ -287,19 +257,13 @@ impl Sim {
         let copies = if self.quad { 4 } else { 1 };
         let tri = triangle();
         for c in 0..copies {
-            let mut ribbon = self.scene.as_ref().map(|_| Ribbon::default());
+            self.begin_ribbon();
             self.gl.pushmatrix();
             self.gl.bgntmesh();
             for p in self.strand_slots() {
                 let v = self.slot_values(p);
                 self.slot_colours(&v, true);
-                if self.controls.act(ids::LIGHT).not_off() {
-                    // The stack slots for ambient and shininess are never
-                    // written; traces show shininess 0.
-                    self.lmcolor(self.col_rgba, None, 0.0);
-                } else {
-                    self.gl.c4f(self.col_rgba);
-                }
+                self.ribbon_colour();
                 self.gl.linewidth(if self.hist.fatline[p] { 3 } else { 1 });
                 self.gl.pushmatrix();
                 self.slot_transform(&v, tenths(v.spin, 10.0), tenths(v.flip, 10.0));
@@ -307,11 +271,7 @@ impl Sim {
                     [tri[0][0], tri[0][1], 0.0],
                     [tri[1][0], tri[1][1], tri[2][0]],
                 ];
-                if let Some(r) = &mut ribbon {
-                    r.edges.push(edge.map(|e| self.gl.eye_point(e)));
-                    r.colours.push(self.col_rgba);
-                    r.hues.push(v.hue);
-                }
+                self.record_ribbon_slot(edge, v.hue);
                 self.gl.v2f(tri[0]);
                 self.gl.v3f(edge[1]);
                 self.gl.popmatrix();
@@ -320,17 +280,31 @@ impl Sim {
                 self.gl.translate(0.0, 0.0, v.z);
             }
             self.gl.popmatrix();
-            if let (Some(scene), Some(r)) = (&mut self.scene, ribbon) {
-                scene.ribbons.push(r);
-            }
-            if c % 2 == 0 {
-                self.gl.rotate(1800, 'z');
-            } else {
-                self.gl.scale(1.0, -1.0, 1.0);
-            }
+            self.next_ribbon_copy(c);
         }
         self.gl.endtmesh();
         self.gl.popmatrix();
+    }
+
+    /// A ribbon slot's colour, already in `col_rgba`.
+    fn ribbon_colour(&mut self) {
+        if self.controls.act(ids::LIGHT).not_off() {
+            // The stack slots for ambient and shininess are never
+            // written; traces show shininess 0.
+            self.lmcolor(self.col_rgba, None, 0.0);
+        } else {
+            self.gl.c4f(self.col_rgba);
+        }
+    }
+
+    /// Turns the base matrix to the next quad-mode ribbon copy `c` + 1:
+    /// alternately half a turn and a mirror in y.
+    fn next_ribbon_copy(&mut self, c: usize) {
+        if c.is_multiple_of(2) {
+            self.gl.rotate(1800, 'z');
+        } else {
+            self.gl.scale(1.0, -1.0, 1.0);
+        }
     }
 }
 
