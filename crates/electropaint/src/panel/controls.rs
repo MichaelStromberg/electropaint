@@ -101,13 +101,13 @@ impl PanelController {
         title: &str,
         bind: Bind,
     ) -> Retained<NSView> {
-        // SAFETY: no target or action; `register` sets them.
+        // SAFETY: no target or action; `add` sets them.
         let b = unsafe { NSButton::checkboxWithTitle_target_action(&ns(title), None, None, mtm) };
         self.add(&*b, bind)
     }
 
     pub(super) fn radio(&self, mtm: MainThreadMarker, bind: Bind) -> Retained<NSView> {
-        // SAFETY: no target or action; `register` sets them.
+        // SAFETY: no target or action; `add` sets them.
         let b = unsafe { NSButton::radioButtonWithTitle_target_action(&ns(""), None, None, mtm) };
         self.add(&*b, bind)
     }
@@ -118,7 +118,7 @@ impl PanelController {
         title: &str,
         bind: Bind,
     ) -> Retained<NSView> {
-        // SAFETY: no target or action; `register` sets them.
+        // SAFETY: no target or action; `add` sets them.
         let b = unsafe { NSButton::buttonWithTitle_target_action(&ns(title), None, None, mtm) };
         self.add(&*b, bind)
     }
@@ -137,7 +137,7 @@ impl PanelController {
             Some(&ns(tip)),
         )
         .unwrap_or_else(|| panic!("no SF Symbol {symbol}"));
-        // SAFETY: no target or action; `register` sets them.
+        // SAFETY: no target or action; `add` sets them.
         let b = unsafe { NSButton::buttonWithImage_target_action(&image, None, None, mtm) };
         b.setBordered(false);
         b.setToolTip(Some(&ns(tip)));
