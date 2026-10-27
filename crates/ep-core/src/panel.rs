@@ -88,11 +88,11 @@ pub mod ids {
 }
 
 /// Size of the id space allocated in this build (ids above 345 are unused).
-pub const ID_LIMIT: usize = 346;
+pub(crate) const ID_LIMIT: usize = 346;
 /// `acttablemaxindex`: the largest id passed through `ep_mkact`. The
 /// per-frame animation loops run `i < MAX_INDEX`, so id 345 itself is never
 /// animated (an off-by-one in the original).
-pub const MAX_INDEX: usize = 345;
+pub(crate) const MAX_INDEX: usize = 345;
 
 /// Which panel window an actuator lives in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -278,11 +278,6 @@ impl Actuator {
     pub fn not_off(&self) -> bool {
         !(f64::from(self.val) < mid(self))
     }
-
-    /// Whether this is one of the seven actuators of an ep slider.
-    pub fn is_slider_part(&self) -> bool {
-        self.slider.is_some()
-    }
 }
 
 fn mid(a: &Actuator) -> f64 {
@@ -330,7 +325,7 @@ impl EpSlider {
 /// Clamp `v` into the span between `hi` and `lo` (either order), exactly as
 /// the original's inline comparisons do (a NaN lands on `lo`, or on `hi`
 /// when the span is reversed).
-pub fn clamp_span(v: f32, hi: f32, lo: f32) -> f32 {
+pub(crate) fn clamp_span(v: f32, hi: f32, lo: f32) -> f32 {
     if lo < hi {
         if lo <= v {
             if v <= hi { v } else { hi }
@@ -380,7 +375,7 @@ impl Controls {
         self.acts.get(usize::from(id)).and_then(|a| a.as_ref())
     }
 
-    pub fn get_mut(&mut self, id: u16) -> Option<&mut Actuator> {
+    pub(crate) fn get_mut(&mut self, id: u16) -> Option<&mut Actuator> {
         self.acts.get_mut(usize::from(id)).and_then(|a| a.as_mut())
     }
 
@@ -390,7 +385,7 @@ impl Controls {
         self.get(id).unwrap_or_else(|| panic!("no actuator {id}"))
     }
 
-    pub fn act_mut(&mut self, id: u16) -> &mut Actuator {
+    pub(crate) fn act_mut(&mut self, id: u16) -> &mut Actuator {
         self.get_mut(id)
             .unwrap_or_else(|| panic!("no actuator {id}"))
     }
@@ -424,7 +419,7 @@ impl Controls {
 
     /// `setact`'s value step for an ep slider: put the value bar at `v`
     /// clamped into the animation window, and mirror it into `val`.
-    pub fn set_slider_bar(&mut self, s: usize, v: f32) {
+    pub(crate) fn set_slider_bar(&mut self, s: usize, v: f32) {
         let sl = &self.sliders[s];
         let (main, up, lo, val) = (sl.id, sl.upper(), sl.lower(), sl.value());
         let a = self.act(up).extval;
@@ -435,7 +430,7 @@ impl Controls {
     }
 
     /// `saverange`: remember the window's width and centre.
-    pub fn save_range(&mut self, s: usize) {
+    pub(crate) fn save_range(&mut self, s: usize) {
         let (up, lo) = (self.sliders[s].upper(), self.sliders[s].lower());
         let a = self.act(up).extval;
         let b = self.act(lo).extval;
@@ -447,14 +442,14 @@ impl Controls {
 
     /// `setcenter` (lower bound dragged): keep the saved width, clamp the
     /// upper bound to the slider maximum, clamp the value into the window.
-    pub fn set_center(&mut self, s: usize) {
+    pub(crate) fn set_center(&mut self, s: usize) {
         let a = self.act(self.sliders[s].lower()).extval + self.sliders[s].range;
         self.reclamp_window(s, a);
     }
 
     /// `setrange` (rate changed): recompute the upper bound from the saved
     /// centre; numerically a re-clamp.
-    pub fn set_range(&mut self, s: usize) {
+    pub(crate) fn set_range(&mut self, s: usize) {
         let a = self.sliders[s].center * 2.0 - self.act(self.sliders[s].lower()).extval;
         self.reclamp_window(s, a);
     }
@@ -474,7 +469,7 @@ impl Controls {
     /// rate to its initial value; then, if the value is already at its
     /// initial value, return the accumulator to reset (second stage),
     /// otherwise move the value bar back. `M.val` is not updated.
-    pub fn reset_slider(&mut self, s: usize) -> Option<Accumulator> {
+    pub(crate) fn reset_slider(&mut self, s: usize) -> Option<Accumulator> {
         let sl = self.sliders[s].clone();
         let (min, max, init) = {
             let m = self.act(sl.id);
@@ -495,7 +490,7 @@ impl Controls {
 
     /// `resetact` (a dial's "R"): the dial back to its initial value. The
     /// dials have no accumulator, so the second stage does nothing.
-    pub fn reset_dial(&mut self, dial: u16) {
+    pub(crate) fn reset_dial(&mut self, dial: u16) {
         let d = self.act_mut(dial);
         if d.initval != d.val {
             d.val = d.initval;
@@ -505,7 +500,7 @@ impl Controls {
     /// `animateslider`: one step of a slider's self-oscillation. `speed` is
     /// the speed slider's value as read at this point; `grabbed` is the
     /// actuator the user is holding, which freezes its own slider.
-    pub fn animate_slider(&mut self, s: usize, speed: f32, grabbed: Option<u16>) {
+    pub(crate) fn animate_slider(&mut self, s: usize, speed: f32, grabbed: Option<u16>) {
         let sl = self.sliders[s].clone();
         let rate = self.act(sl.rate()).val;
         if grabbed == Some(sl.value()) || rate == 0.0 {
@@ -535,7 +530,7 @@ impl Controls {
     }
 
     /// `chooseupdates` for actuator `id` (colour panel side effects).
-    pub fn choose_updates(&mut self, id: u16) {
+    pub(crate) fn choose_updates(&mut self, id: u16) {
         for i in 0..5 {
             if id == ids::dwell(i) {
                 self.update_dwell_sliders(i);
@@ -548,7 +543,7 @@ impl Controls {
 
     /// `updatedwellsliders`: renormalise the other four dwell values after
     /// dwell slider `k` moved since the last call.
-    pub fn update_dwell_sliders(&mut self, k: usize) {
+    pub(crate) fn update_dwell_sliders(&mut self, k: usize) {
         let vals: [f32; 5] = std::array::from_fn(|i| self.act(ids::dwell(i)).val);
         let mut sum = 0.0f32;
         for (i, v) in vals.iter().enumerate() {
@@ -572,7 +567,7 @@ impl Controls {
     }
 
     /// `updateactivebutton`: release every other channel's active button.
-    pub fn update_active_button(&mut self, k: usize) {
+    pub(crate) fn update_active_button(&mut self, k: usize) {
         for i in (0..5).filter(|&i| i != k) {
             let a = self.act_mut(ids::active_button(i));
             a.val = a.min;
@@ -581,7 +576,7 @@ impl Controls {
 
     /// `togglechanmode`: the hue palette switches to lightness mode, the
     /// lightness palette back to hue mode (visibility only).
-    pub fn toggle_chan_mode(&mut self, from: u16) {
+    pub(crate) fn toggle_chan_mode(&mut self, from: u16) {
         let to_light = from == ids::HUE_PALETTE;
         self.hue_mode = !to_light;
         self.act_mut(ids::HUE_PALETTE).visible = !to_light;

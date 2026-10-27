@@ -14,7 +14,7 @@ use crate::sim::Sim;
 
 /// The per-actuator random-walk record (`acttable` entry).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct ActRec {
+pub(crate) struct ActRec {
     /// Enabled for random animation (`actlim2` sets it; `actstop`,
     /// `actstopall` and turning "auto" off clear it).
     pub enabled: bool,
@@ -32,7 +32,7 @@ pub struct ActRec {
 
 /// A sequence at run time.
 #[derive(Clone, Debug, PartialEq)]
-pub struct SeqState {
+pub(crate) struct SeqState {
     pub id: i32,
     /// Cleared only when the sequence is killed.
     pub active: bool,

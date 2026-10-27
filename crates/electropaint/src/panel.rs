@@ -28,7 +28,7 @@ use objc2_app_kit::{
     NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
-    NSArray, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer,
+    NSArray, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer,
 };
 
 /// After the user moves a control, the panel leaves it alone this long
@@ -61,7 +61,7 @@ struct Control {
     edited: Cell<Option<Instant>>,
 }
 
-pub struct PanelIvars {
+pub(crate) struct PanelIvars {
     show: Rc<RefCell<Show>>,
     controls: RefCell<Vec<Control>>,
     puck: Cell<[f32; 2]>,
@@ -79,7 +79,7 @@ define_class!(
     #[thread_kind = MainThreadOnly]
     #[name = "EPPanelController"]
     #[ivars = PanelIvars]
-    pub struct PanelController;
+    pub(crate) struct PanelController;
 
     impl PanelController {
         #[unsafe(method(changed:))]
@@ -106,9 +106,6 @@ define_class!(
             }
             true
         }
-
-        #[unsafe(method(windowWillClose:))]
-        fn window_will_close(&self, _note: &NSNotification) {}
     }
 );
 
@@ -116,7 +113,7 @@ impl PanelController {
     /// Builds the panel. It appears when ep's panels would (outside full
     /// screen), or straight away if `pinned`. `level` is the window level of
     /// the show, which the panel must float above.
-    pub fn new(
+    pub(crate) fn new(
         mtm: MainThreadMarker,
         show: Rc<RefCell<Show>>,
         pinned: bool,
@@ -179,7 +176,7 @@ impl PanelController {
 
     /// Draws each tab of the panel into `<path>-<tab>.png` (for checking
     /// the layout without a screen).
-    pub fn snapshot(&self, path: &str) -> Result<(), String> {
+    pub(crate) fn snapshot(&self, path: &str) -> Result<(), String> {
         let window = self.ivars().window.borrow();
         let window = window.as_ref().ok_or("no panel")?;
         let tabs = window.contentView().ok_or("no content")?;
@@ -301,7 +298,7 @@ impl PanelController {
         mode.setLabel_forSegment(&ns("hue"), 0);
         mode.setLabel_forSegment(&ns("lightness"), 1);
         let mode: Retained<NSView> = Retained::into_super(Retained::into_super(mode));
-        self.register(mtm, &mode, Bind::ChanMode);
+        self.register(&mode, Bind::ChanMode);
         let mode = hstack(mtm, &[label(mtm, "channel sliders"), mode]);
 
         // One column per colour channel.
@@ -407,7 +404,7 @@ impl PanelController {
         (f64::from(lo), f64::from(hi))
     }
 
-    fn register(&self, _mtm: MainThreadMarker, view: &Retained<NSView>, bind: Bind) {
+    fn register(&self, view: &Retained<NSView>, bind: Bind) {
         let mut controls = self.ivars().controls.borrow_mut();
         if let Some(control) = view.downcast_ref::<NSControl>() {
             control.setTag(controls.len() as isize);
@@ -440,7 +437,7 @@ impl PanelController {
             .constraintEqualToConstant(width)
             .setActive(true);
         let view: Retained<NSView> = Retained::into_super(Retained::into_super(s));
-        self.register(mtm, &view, bind);
+        self.register(&view, bind);
         view
     }
 
@@ -451,14 +448,14 @@ impl PanelController {
         s.setMaxValue(max);
         s.setContinuous(true);
         let view: Retained<NSView> = Retained::into_super(Retained::into_super(s));
-        self.register(mtm, &view, bind);
+        self.register(&view, bind);
         view
     }
 
     fn checkbox(&self, mtm: MainThreadMarker, title: &str, bind: Bind) -> Retained<NSView> {
         let b = unsafe { NSButton::checkboxWithTitle_target_action(&ns(title), None, None, mtm) };
         let view: Retained<NSView> = Retained::into_super(Retained::into_super(b));
-        self.register(mtm, &view, bind);
+        self.register(&view, bind);
         view
     }
 
@@ -479,7 +476,7 @@ impl PanelController {
             }
         }
         let view: Retained<NSView> = Retained::into_super(Retained::into_super(b));
-        self.register(mtm, &view, bind);
+        self.register(&view, bind);
         view
     }
 
@@ -500,7 +497,7 @@ impl PanelController {
             .constraintEqualToConstant(64.0)
             .setActive(true);
         let view: Retained<NSView> = Retained::into_super(Retained::into_super(t));
-        self.register(mtm, &view, bind);
+        self.register(&view, bind);
         view
     }
 
@@ -516,7 +513,7 @@ impl PanelController {
             .constraintEqualToConstant(20.0)
             .setActive(true);
         let view: Retained<NSView> = Retained::into_super(b);
-        self.register(mtm, &view, Bind::Swatch(channel));
+        self.register(&view, Bind::Swatch(channel));
         view
     }
 
@@ -596,7 +593,6 @@ impl PanelController {
         drop(window_ref);
         drop(show);
         self.refresh_values();
-        let _ = mtm;
     }
 
     /// Sets every control from the simulation (skipping ones just edited).
@@ -682,7 +678,6 @@ fn label(mtm: MainThreadMarker, text: &str) -> Retained<NSView> {
 }
 
 fn empty(mtm: MainThreadMarker) -> Retained<NSView> {
-    let _ = mtm;
     NSGridCell::emptyContentView(mtm)
 }
 

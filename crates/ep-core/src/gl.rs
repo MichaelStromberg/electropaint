@@ -71,14 +71,14 @@ impl std::fmt::Display for IrisCall {
 }
 
 /// Column-major 4x4 matrix (same memory order as an IrisGL `Matrix`).
-pub type Mat4 = [f32; 16];
+pub(crate) type Mat4 = [f32; 16];
 
-pub const IDENTITY: Mat4 = [
+pub(crate) const IDENTITY: Mat4 = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
 ];
 
 /// `a · b`.
-pub fn mat_mul(a: &Mat4, b: &Mat4) -> Mat4 {
+pub(crate) fn mat_mul(a: &Mat4, b: &Mat4) -> Mat4 {
     let mut r = [0.0f32; 16];
     for c in 0..4 {
         for row in 0..4 {
@@ -90,7 +90,7 @@ pub fn mat_mul(a: &Mat4, b: &Mat4) -> Mat4 {
 
 /// The rotation IrisGL's `rotate(a, axis)` applies: `a` tenths of a degree,
 /// right-handed (counter-clockwise looking down the axis).
-pub fn rotation(tenths: i16, axis: char) -> Mat4 {
+pub(crate) fn rotation(tenths: i16, axis: char) -> Mat4 {
     let rad = f64::from(tenths) / 10.0 * std::f64::consts::PI / 180.0;
     let (s, c) = (rad.sin() as f32, rad.cos() as f32);
     let mut m = IDENTITY;
@@ -106,7 +106,7 @@ pub fn rotation(tenths: i16, axis: char) -> Mat4 {
     m
 }
 
-pub fn translation(x: f32, y: f32, z: f32) -> Mat4 {
+pub(crate) fn translation(x: f32, y: f32, z: f32) -> Mat4 {
     let mut m = IDENTITY;
     m[12] = x;
     m[13] = y;
@@ -114,24 +114,11 @@ pub fn translation(x: f32, y: f32, z: f32) -> Mat4 {
     m
 }
 
-pub fn scaling(x: f32, y: f32, z: f32) -> Mat4 {
+pub(crate) fn scaling(x: f32, y: f32, z: f32) -> Mat4 {
     let mut m = IDENTITY;
     m[0] = x;
     m[5] = y;
     m[10] = z;
-    m
-}
-
-/// `perspective(fovy, aspect, near, far)` as a matrix (OpenGL clip space).
-pub fn perspective_matrix(p: &Projection) -> Mat4 {
-    let f = 1.0 / (f64::from(p.fovy_tenths) / 20.0).to_radians().tan();
-    let (n, fa) = (f64::from(p.near), f64::from(p.far));
-    let mut m = [0.0f32; 16];
-    m[0] = (f / f64::from(p.aspect)) as f32;
-    m[5] = f as f32;
-    m[10] = ((fa + n) / (n - fa)) as f32;
-    m[11] = -1.0;
-    m[14] = (2.0 * fa * n / (n - fa)) as f32;
     m
 }
 
@@ -185,31 +172,35 @@ fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
 }
 
 /// IrisGL `lmdef` tokens.
-pub mod lm {
-    pub const DEFMATERIAL: i16 = 0;
-    pub const DEFLIGHT: i16 = 100;
-    pub const DEFLMODEL: i16 = 200;
-    pub const LMNULL: f32 = 0.0;
-    pub const EMISSION: f32 = 1.0;
-    pub const AMBIENT: f32 = 2.0;
-    pub const DIFFUSE: f32 = 3.0;
-    pub const SPECULAR: f32 = 4.0;
-    pub const SHININESS: f32 = 5.0;
-    pub const COLORINDEXES: f32 = 6.0;
-    pub const ALPHA: f32 = 7.0;
-    pub const LCOLOR: f32 = 101.0;
-    pub const POSITION: f32 = 102.0;
-    pub const SPOTDIRECTION: f32 = 103.0;
-    pub const SPOTLIGHT: f32 = 104.0;
-    pub const LOCALVIEWER: f32 = 201.0;
-    pub const ATTENUATION: f32 = 202.0;
-    pub const ATTENUATION2: f32 = 203.0;
-    pub const TWOSIDE: f32 = 204.0;
+#[allow(
+    dead_code,
+    reason = "the complete IrisGL token table, not only the ones ep passes"
+)]
+pub(crate) mod lm {
+    pub(crate) const DEFMATERIAL: i16 = 0;
+    pub(crate) const DEFLIGHT: i16 = 100;
+    pub(crate) const DEFLMODEL: i16 = 200;
+    pub(crate) const LMNULL: f32 = 0.0;
+    pub(crate) const EMISSION: f32 = 1.0;
+    pub(crate) const AMBIENT: f32 = 2.0;
+    pub(crate) const DIFFUSE: f32 = 3.0;
+    pub(crate) const SPECULAR: f32 = 4.0;
+    pub(crate) const SHININESS: f32 = 5.0;
+    pub(crate) const COLORINDEXES: f32 = 6.0;
+    pub(crate) const ALPHA: f32 = 7.0;
+    pub(crate) const LCOLOR: f32 = 101.0;
+    pub(crate) const POSITION: f32 = 102.0;
+    pub(crate) const SPOTDIRECTION: f32 = 103.0;
+    pub(crate) const SPOTLIGHT: f32 = 104.0;
+    pub(crate) const LOCALVIEWER: f32 = 201.0;
+    pub(crate) const ATTENUATION: f32 = 202.0;
+    pub(crate) const ATTENUATION2: f32 = 203.0;
+    pub(crate) const TWOSIDE: f32 = 204.0;
     /// `lmbind` targets.
-    pub const MATERIAL: i16 = 1000;
-    pub const BACKMATERIAL: i16 = 1001;
-    pub const LIGHT0: i16 = 1100;
-    pub const LMODEL: i16 = 1200;
+    pub(crate) const MATERIAL: i16 = 1000;
+    pub(crate) const BACKMATERIAL: i16 = 1001;
+    pub(crate) const LIGHT0: i16 = 1100;
+    pub(crate) const LMODEL: i16 = 1200;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -307,7 +298,7 @@ enum Prim {
 
 /// The emulated IrisGL context.
 #[derive(Clone, Debug)]
-pub struct Gl {
+pub(crate) struct Gl {
     log: Option<Vec<IrisCall>>,
     ops: Vec<Op>,
     stack: Vec<Mat4>,
@@ -337,7 +328,7 @@ pub struct Gl {
 }
 
 impl Gl {
-    pub fn new(log: bool) -> Gl {
+    pub(crate) fn new(log: bool) -> Gl {
         Gl {
             log: log.then(Vec::new),
             ops: Vec::new(),
@@ -369,24 +360,20 @@ impl Gl {
     // ---------------------------------------------------------------- output
 
     /// Take the renderer ops recorded so far.
-    pub fn take_frame(&mut self) -> Frame {
+    pub(crate) fn take_frame(&mut self) -> Frame {
         Frame {
             ops: std::mem::take(&mut self.ops),
         }
     }
 
     /// Take the call log recorded so far (empty when logging is off).
-    pub fn take_calls(&mut self) -> Vec<IrisCall> {
+    pub(crate) fn take_calls(&mut self) -> Vec<IrisCall> {
         self.log.as_mut().map(std::mem::take).unwrap_or_default()
-    }
-
-    pub fn logging(&self) -> bool {
-        self.log.is_some()
     }
 
     /// Record a call that has no GL state effect here (window management,
     /// `srand48`, `drand48`, …).
-    pub fn log_call(&mut self, name: &'static str, args: impl FnOnce() -> Vec<Arg>) {
+    pub(crate) fn log_call(&mut self, name: &'static str, args: impl FnOnce() -> Vec<Arg>) {
         if let Some(l) = self.log.as_mut() {
             l.push(IrisCall { name, args: args() });
         }
@@ -397,7 +384,7 @@ impl Gl {
     }
 
     /// The modelview matrix in force.
-    pub fn modelview(&self) -> &Mat4 {
+    pub(crate) fn modelview(&self) -> &Mat4 {
         self.stack.last().expect("matrix stack is never empty")
     }
 
@@ -462,30 +449,30 @@ impl Gl {
 
     // ---------------------------------------------------------------- config
 
-    pub fn doublebuffer(&mut self) {
+    pub(crate) fn doublebuffer(&mut self) {
         self.log("doublebuffer", Vec::new);
     }
 
-    pub fn rgbmode(&mut self) {
+    pub(crate) fn rgbmode(&mut self) {
         self.log("RGBmode", Vec::new);
     }
 
-    pub fn gconfig(&mut self) {
+    pub(crate) fn gconfig(&mut self) {
         self.log("gconfig", Vec::new);
     }
 
-    pub fn subpixel(&mut self, on: bool) {
+    pub(crate) fn subpixel(&mut self, on: bool) {
         self.log("subpixel", || vec![Arg::Int(on.into())]);
     }
 
     /// `mmode(MVIEWING = 2)` selects separate projection and modelview
     /// matrices. ep (a lit build) sets it before any matrix call, so only
     /// MVIEWING is modelled.
-    pub fn mmode(&mut self, mode: i16) {
+    pub(crate) fn mmode(&mut self, mode: i16) {
         self.log("mmode", || vec![Arg::Int(mode.into())]);
     }
 
-    pub fn blendfunction(&mut self, sfactor: i32, dfactor: i32) {
+    pub(crate) fn blendfunction(&mut self, sfactor: i32, dfactor: i32) {
         self.log("blendfunction", || {
             vec![Arg::Int(sfactor.into()), Arg::Int(dfactor.into())]
         });
@@ -494,56 +481,56 @@ impl Gl {
     }
 
     /// `shademodel(FLAT = 0 | GOURAUD = 1)`.
-    pub fn shademodel(&mut self, mode: i32) {
+    pub(crate) fn shademodel(&mut self, mode: i32) {
         self.log("shademodel", || vec![Arg::Int(mode.into())]);
         self.flat = mode == 0;
     }
 
-    pub fn concave(&mut self, on: bool) {
+    pub(crate) fn concave(&mut self, on: bool) {
         self.log("concave", || vec![Arg::Int(on.into())]);
     }
 
-    pub fn glcompat(&mut self, what: i32, value: i32) {
+    pub(crate) fn glcompat(&mut self, what: i32, value: i32) {
         self.log("glcompat", || {
             vec![Arg::Int(what.into()), Arg::Int(value.into())]
         });
     }
 
-    pub fn lsetdepth(&mut self, near: i32, far: i32) {
+    pub(crate) fn lsetdepth(&mut self, near: i32, far: i32) {
         self.log("lsetdepth", || {
             vec![Arg::Int(near.into()), Arg::Int(far.into())]
         });
     }
 
-    pub fn reshapeviewport(&mut self) {
+    pub(crate) fn reshapeviewport(&mut self) {
         self.log("reshapeviewport", Vec::new);
     }
 
-    pub fn zbuffer(&mut self, on: bool) {
+    pub(crate) fn zbuffer(&mut self, on: bool) {
         self.log("zbuffer", || vec![Arg::Int(on.into())]);
         self.zbuffer = on;
     }
 
-    pub fn frontbuffer(&mut self, on: bool) {
+    pub(crate) fn frontbuffer(&mut self, on: bool) {
         self.log("frontbuffer", || vec![Arg::Int(on.into())]);
         self.front = on;
         self.ops.push(Op::SetDrawBuffer(self.draw_buffer()));
     }
 
-    pub fn backbuffer(&mut self, on: bool) {
+    pub(crate) fn backbuffer(&mut self, on: bool) {
         self.log("backbuffer", || vec![Arg::Int(on.into())]);
         self.back = on;
         self.ops.push(Op::SetDrawBuffer(self.draw_buffer()));
     }
 
-    pub fn linewidth(&mut self, w: i16) {
+    pub(crate) fn linewidth(&mut self, w: i16) {
         self.log("linewidth", || vec![Arg::Int(w.into())]);
         self.line_width = w;
     }
 
     /// `defpattern(index, size, words)`: rows from the bottom, bit 15 is the
     /// leftmost pixel. The tracer logs the pointer only.
-    pub fn defpattern(&mut self, index: i16, words: [u16; 16]) {
+    pub(crate) fn defpattern(&mut self, index: i16, words: [u16; 16]) {
         self.log("defpattern", || {
             vec![Arg::Int(index.into()), Arg::Int(16), Arg::Ptr]
         });
@@ -553,12 +540,12 @@ impl Gl {
         }
     }
 
-    pub fn setpattern(&mut self, index: i16) {
+    pub(crate) fn setpattern(&mut self, index: i16) {
         self.log("setpattern", || vec![Arg::Int(index.into())]);
         self.pattern = index;
     }
 
-    pub fn mapcolor(&mut self, index: u16, r: i16, g: i16, b: i16) {
+    pub(crate) fn mapcolor(&mut self, index: u16, r: i16, g: i16, b: i16) {
         self.log("mapcolor", || {
             vec![
                 Arg::Int(index.into()),
@@ -574,7 +561,7 @@ impl Gl {
 
     // ---------------------------------------------------------------- matrices
 
-    pub fn perspective(&mut self, fovy_tenths: i16, aspect: f32, near: f32, far: f32) {
+    pub(crate) fn perspective(&mut self, fovy_tenths: i16, aspect: f32, near: f32, far: f32) {
         self.log("perspective", || {
             vec![
                 Arg::Int(fovy_tenths.into()),
@@ -593,19 +580,14 @@ impl Gl {
         self.ops.push(Op::SetProjection(p));
     }
 
-    pub fn loadmatrix(&mut self, m: &Mat4) {
+    pub(crate) fn loadmatrix(&mut self, m: &Mat4) {
         self.log("loadmatrix", || vec![Arg::Floats(m.to_vec())]);
         *self.modelview_mut() = *m;
     }
 
-    pub fn multmatrix(&mut self, m: &Mat4) {
-        self.log("multmatrix", || vec![Arg::Floats(m.to_vec())]);
-        self.post_multiply(m);
-    }
-
     /// `polarview(dist, azim, inc, twist)` = `translate(0,0,-dist)`,
     /// `rotate(-twist,'z')`, `rotate(-inc,'x')`, `rotate(-azim,'z')`.
-    pub fn polarview(&mut self, dist: f32, azim: i16, inc: i16, twist: i16) {
+    pub(crate) fn polarview(&mut self, dist: f32, azim: i16, inc: i16, twist: i16) {
         self.log("polarview", || {
             vec![
                 Arg::Float(dist),
@@ -621,13 +603,13 @@ impl Gl {
         self.post_multiply(&m);
     }
 
-    pub fn pushmatrix(&mut self) {
+    pub(crate) fn pushmatrix(&mut self) {
         self.log("pushmatrix", Vec::new);
         let top = *self.modelview();
         self.stack.push(top);
     }
 
-    pub fn popmatrix(&mut self) {
+    pub(crate) fn popmatrix(&mut self) {
         self.log("popmatrix", Vec::new);
         if self.stack.len() > 1 {
             self.stack.pop();
@@ -635,21 +617,21 @@ impl Gl {
     }
 
     /// `rotate(a, axis)`: `a` in tenths of a degree, axis `'x'`, `'y'` or `'z'`.
-    pub fn rotate(&mut self, tenths: i16, axis: char) {
+    pub(crate) fn rotate(&mut self, tenths: i16, axis: char) {
         self.log("rotate", || {
             vec![Arg::Int(tenths.into()), Arg::Int(i64::from(axis as u32))]
         });
         self.post_multiply(&rotation(tenths, axis));
     }
 
-    pub fn translate(&mut self, x: f32, y: f32, z: f32) {
+    pub(crate) fn translate(&mut self, x: f32, y: f32, z: f32) {
         self.log("translate", || {
             vec![Arg::Float(x), Arg::Float(y), Arg::Float(z)]
         });
         self.post_multiply(&translation(x, y, z));
     }
 
-    pub fn scale(&mut self, x: f32, y: f32, z: f32) {
+    pub(crate) fn scale(&mut self, x: f32, y: f32, z: f32) {
         self.log("scale", || {
             vec![Arg::Float(x), Arg::Float(y), Arg::Float(z)]
         });
@@ -658,22 +640,15 @@ impl Gl {
 
     // ---------------------------------------------------------------- colour
 
-    pub fn c4f(&mut self, c: [f32; 4]) {
+    pub(crate) fn c4f(&mut self, c: [f32; 4]) {
         self.log("c4f", || vec![Arg::Floats(c.to_vec())]);
         self.color = c;
         self.normal_last = false;
     }
 
-    /// `cpack(0xAABBGGRR)`.
-    pub fn cpack(&mut self, v: u32) {
-        self.log("cpack", || vec![Arg::Int(v.into())]);
-        self.color = [0, 8, 16, 24].map(|s| ((v >> s) & 0xff) as f32 / 255.0);
-        self.normal_last = false;
-    }
-
     /// `color(index)`: a colour-index command. ep is in RGB mode; see
     /// [`RgbColorIndex`].
-    pub fn color(&mut self, index: u16) {
+    pub(crate) fn color(&mut self, index: u16) {
         self.log("color", || vec![Arg::Int(index.into())]);
         match self.rgb_color_index {
             RgbColorIndex::PackedLow16 => {
@@ -694,7 +669,7 @@ impl Gl {
         }
     }
 
-    pub fn n3f(&mut self, n: [f32; 3]) {
+    pub(crate) fn n3f(&mut self, n: [f32; 3]) {
         self.log("n3f", || vec![Arg::Floats(n.to_vec())]);
         self.normal = n;
         self.normal_last = true;
@@ -704,7 +679,7 @@ impl Gl {
 
     /// `lmdef(deftype, index, np, props)`. Properties not given keep their
     /// previous values (or the IrisGL defaults for a new index).
-    pub fn lmdef(&mut self, deftype: i16, index: i16, props: &[f32]) {
+    pub(crate) fn lmdef(&mut self, deftype: i16, index: i16, props: &[f32]) {
         self.log("lmdef", || {
             vec![
                 Arg::Int(deftype.into()),
@@ -790,7 +765,7 @@ impl Gl {
 
     /// `lmbind(target, index)`. Index 0 unbinds. A light's position is
     /// transformed by the modelview in force now.
-    pub fn lmbind(&mut self, target: i16, index: i16) {
+    pub(crate) fn lmbind(&mut self, target: i16, index: i16) {
         self.log("lmbind", || {
             vec![Arg::Int(target.into()), Arg::Int(index.into())]
         });
@@ -820,12 +795,6 @@ impl Gl {
             }
             _ => {}
         }
-    }
-
-    /// Whether IrisGL lighting is enabled: a material and a lighting model
-    /// must both be bound.
-    pub fn lighting_enabled(&self) -> bool {
-        self.material.is_some() && self.lmodel.is_some()
     }
 
     /// The colour of a vertex at eye-space position `pos`: lit if lighting
@@ -886,7 +855,7 @@ impl Gl {
 
     /// `clear()`: fill the viewport with the current colour, through the
     /// current pattern if one is set; blending and z are ignored.
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.log("clear", Vec::new);
         let color = self.color;
         let pattern = (self.pattern != 0)
@@ -903,26 +872,26 @@ impl Gl {
         });
     }
 
-    pub fn zclear(&mut self) {
+    pub(crate) fn zclear(&mut self) {
         self.log("zclear", Vec::new);
         self.ops.push(Op::ZClear);
     }
 
-    pub fn swapbuffers(&mut self) {
+    pub(crate) fn swapbuffers(&mut self) {
         self.log("swapbuffers", Vec::new);
         self.ops.push(Op::Swap);
     }
 
     // ---------------------------------------------------------------- primitives
 
-    pub fn bgnpolygon(&mut self) {
+    pub(crate) fn bgnpolygon(&mut self) {
         self.log("bgnpolygon", Vec::new);
         self.prim = Prim::Polygon(Vec::new());
     }
 
     /// Polygons are convex here (`concave(FALSE)`): a fan. Flat shading
     /// gives every triangle the colour of the polygon's last vertex.
-    pub fn endpolygon(&mut self) {
+    pub(crate) fn endpolygon(&mut self) {
         self.log("endpolygon", Vec::new);
         if let Prim::Polygon(mut v) = std::mem::replace(&mut self.prim, Prim::None) {
             if v.len() < 3 {
@@ -939,14 +908,14 @@ impl Gl {
         }
     }
 
-    pub fn bgnclosedline(&mut self) {
+    pub(crate) fn bgnclosedline(&mut self) {
         self.log("bgnclosedline", Vec::new);
         self.prim = Prim::ClosedLine(Vec::new());
     }
 
     /// A closed line loop as segments; flat shading colours each segment
     /// with its second vertex.
-    pub fn endclosedline(&mut self) {
+    pub(crate) fn endclosedline(&mut self) {
         self.log("endclosedline", Vec::new);
         if let Prim::ClosedLine(v) = std::mem::replace(&mut self.prim, Prim::None) {
             if v.len() < 2 {
@@ -966,7 +935,7 @@ impl Gl {
 
     /// `bgntmesh()`. A `bgntmesh` while a mesh is open (ep's quad ribbons
     /// issue four with a single `endtmesh`) starts a new strip.
-    pub fn bgntmesh(&mut self) {
+    pub(crate) fn bgntmesh(&mut self) {
         self.log("bgntmesh", Vec::new);
         self.prim = Prim::TMesh {
             saved: Vec::new(),
@@ -974,23 +943,19 @@ impl Gl {
         };
     }
 
-    pub fn endtmesh(&mut self) {
+    pub(crate) fn endtmesh(&mut self) {
         self.log("endtmesh", Vec::new);
         self.prim = Prim::None;
     }
 
-    pub fn v2f(&mut self, v: [f32; 2]) {
+    pub(crate) fn v2f(&mut self, v: [f32; 2]) {
         self.log("v2f", || vec![Arg::Floats(v.to_vec())]);
         self.vertex([v[0], v[1], 0.0]);
     }
 
-    pub fn v3f(&mut self, v: [f32; 3]) {
+    pub(crate) fn v3f(&mut self, v: [f32; 3]) {
         self.log("v3f", || vec![Arg::Floats(v.to_vec())]);
         self.vertex(v);
-    }
-
-    pub fn t2f(&mut self, t: [f32; 2]) {
-        self.log("t2f", || vec![Arg::Floats(t.to_vec())]);
     }
 
     fn vertex(&mut self, v: [f32; 3]) {

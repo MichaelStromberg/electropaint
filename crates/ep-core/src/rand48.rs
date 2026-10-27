@@ -6,23 +6,23 @@ const MASK: u64 = (1 << 48) - 1;
 
 /// The 48-bit linear congruential generator behind `drand48`.
 #[derive(Clone, Debug)]
-pub struct Rand48 {
+pub(crate) struct Rand48 {
     x: u64,
 }
 
 impl Rand48 {
     /// Equivalent to `srand48(seed)`: only the low 32 bits of the seed are used.
-    pub fn new(seed: i64) -> Self {
+    pub(crate) fn new(seed: i64) -> Self {
         let mut r = Rand48 { x: 0 };
         r.srand48(seed);
         r
     }
 
-    pub fn srand48(&mut self, seed: i64) {
+    pub(crate) fn srand48(&mut self, seed: i64) {
         self.x = (((seed as u64) & 0xFFFF_FFFF) << 16) | 0x330E;
     }
 
-    pub fn drand48(&mut self) -> f64 {
+    pub(crate) fn drand48(&mut self) -> f64 {
         self.x = A.wrapping_mul(self.x).wrapping_add(C) & MASK;
         self.x as f64 / (1u64 << 48) as f64
     }

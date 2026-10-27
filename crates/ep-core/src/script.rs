@@ -111,11 +111,6 @@ pub struct Script {
 }
 
 impl Script {
-    /// A script with no sequences (`ep -c`).
-    pub fn empty() -> Script {
-        Script::default()
-    }
-
     /// Index (in list order) of the sequence that starts by itself: the
     /// first one with id 0.
     pub fn autostart(&self) -> Option<usize> {
@@ -298,7 +293,7 @@ impl fmt::Display for Script {
 
 /// The (integer, float) argument pair of a command, as stored in the
 /// original's command record.
-pub fn op_args(op: &Op) -> (i32, f32) {
+pub(crate) fn op_args(op: &Op) -> (i32, f32) {
     match *op {
         Op::Frame(v) | Op::AbsFrame(v) | Op::Duration(v) | Op::Variance(v) | Op::RandDelay(v) => {
             (0, v)

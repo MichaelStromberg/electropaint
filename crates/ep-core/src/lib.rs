@@ -2,8 +2,8 @@
 //! each tick produces a [`frame::Frame`] for a renderer to execute.
 //!
 //! The crate reproduces the original program's IrisGL draw stream: the
-//! script sequencer and random walks ([`anim`]), the main loop ([`sim`]),
-//! the strand drawing ([`draw`]) and an IrisGL emulation ([`gl`]) that turns
+//! script sequencer and random walks (`anim`), the main loop ([`sim`]),
+//! the strand drawing (`draw`) and an IrisGL emulation (`gl`) that turns
 //! the calls into renderer ops and, optionally, into a call log that
 //! [`trace`] compares with recordings of the real program.
 //!
@@ -14,13 +14,13 @@
 //! assert!(!frame.ops.is_empty());
 //! ```
 
-pub mod anim;
+mod anim;
 pub mod colour;
-pub mod draw;
+mod draw;
 pub mod frame;
-pub mod gl;
+mod gl;
 pub mod panel;
-pub mod rand48;
+mod rand48;
 pub mod script;
 pub mod sim;
 pub mod trace;

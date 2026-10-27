@@ -117,10 +117,6 @@ impl Renderer {
         }
     }
 
-    pub fn device(&self) -> &Device {
-        &self.device
-    }
-
     /// Configures a layer for this renderer: our device, BGRA8, and a
     /// drawable we can blit into.
     pub fn configure_layer(&self, layer: &CAMetalLayer) {

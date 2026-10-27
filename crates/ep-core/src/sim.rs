@@ -16,7 +16,7 @@ use crate::rand48::Rand48;
 use crate::script::Script;
 
 /// Ring buffer length for the strand history.
-pub const RING: usize = 128;
+pub(crate) const RING: usize = 128;
 
 /// How a run is set up (the original's command-line flags and hardware).
 #[derive(Clone, Debug)]
@@ -105,7 +105,6 @@ enum Input {
     Up(u16),
     Drag(u16, f32),
     Release(u16),
-    ActSet(u16, f32),
     Puck(f32, f32),
 }
 
@@ -376,11 +375,6 @@ impl Sim {
         &self.swaps
     }
 
-    /// Number of ticks run so far.
-    pub fn ticks(&self) -> u64 {
-        self.ticks
-    }
-
     /// The call log since the last call (empty unless `Options::call_log`).
     pub fn take_calls(&mut self) -> Vec<IrisCall> {
         self.gl.take_calls()
@@ -441,12 +435,6 @@ impl Sim {
             }
             None => false,
         }
-    }
-
-    /// Script-style `actset` at the next tick: set the value and fire the
-    /// actuator's callbacks.
-    pub fn actset(&mut self, id: u16, v: f32) {
-        self.inputs.push_back(Input::ActSet(id, v));
     }
 
     /// Move the position puck (strand offset).
@@ -782,11 +770,6 @@ impl Sim {
                         self.callback(self.controls.act(id).up, id);
                     }
                     self.grabbed = None;
-                }
-                Input::ActSet(id, v) => {
-                    if self.controls.get(id).is_some() {
-                        self.setact(id, v);
-                    }
                 }
                 Input::Puck(x, y) => self.puck = [x, y],
             }

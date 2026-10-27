@@ -257,18 +257,18 @@ struct OpDef {
 
 /// The tracer's opcode table.
 #[derive(Clone, Debug)]
-pub struct OpsTable {
+pub(crate) struct OpsTable {
     ops: HashMap<u16, OpDef>,
 }
 
 impl OpsTable {
-    pub fn load(path: impl AsRef<std::path::Path>) -> Result<OpsTable, String> {
+    pub(crate) fn load(path: impl AsRef<std::path::Path>) -> Result<OpsTable, String> {
         let text = std::fs::read_to_string(path.as_ref())
             .map_err(|e| format!("{}: {e}", path.as_ref().display()))?;
         OpsTable::parse(&text)
     }
 
-    pub fn parse(json: &str) -> Result<OpsTable, String> {
+    pub(crate) fn parse(json: &str) -> Result<OpsTable, String> {
         let j = JsonParser::parse(json)?;
         let Some(Json::Obj(ops)) = j.get("ops") else {
             return Err("no \"ops\" object".into());
@@ -334,7 +334,7 @@ fn static_name(name: &str) -> &'static str {
 
 /// One decoded trace record.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Record {
+pub(crate) struct Record {
     pub name: &'static str,
     pub args: Vec<Arg>,
     /// The raw values of pointer arguments, in order.
@@ -344,7 +344,7 @@ pub struct Record {
 
 impl Record {
     /// As a call log entry (`drand48`'s return value becomes its argument).
-    pub fn to_call(&self) -> IrisCall {
+    pub(crate) fn to_call(&self) -> IrisCall {
         let mut args = self.args.clone();
         if self.name == "drand48" {
             args.extend(self.ret.clone());
@@ -375,14 +375,14 @@ fn read_scalar(ty: Ty, p: &[u8], off: usize) -> Option<Arg> {
 }
 
 /// A streaming EPT1 decoder.
-pub struct Decoder<'a> {
+pub(crate) struct Decoder<'a> {
     ops: &'a OpsTable,
     data: &'a [u8],
     pos: usize,
 }
 
 impl<'a> Decoder<'a> {
-    pub fn new(ops: &'a OpsTable, data: &'a [u8]) -> Result<Decoder<'a>, String> {
+    pub(crate) fn new(ops: &'a OpsTable, data: &'a [u8]) -> Result<Decoder<'a>, String> {
         if !data.starts_with(b"EPT1") {
             return Err("not an EPT1 trace".into());
         }
@@ -515,7 +515,7 @@ const DRAW_CALLS: &[&str] = &[
 /// only partly compared: `mapcolor` only for the five channel swatches ep
 /// sets every frame (0x300..0x304; the rest is panel colour-map
 /// bookkeeping), and `defpattern` not for libpanel's own pattern 1.
-pub fn is_draw_call(c: &IrisCall) -> bool {
+pub(crate) fn is_draw_call(c: &IrisCall) -> bool {
     if !DRAW_CALLS.contains(&c.name) {
         return false;
     }
@@ -540,7 +540,7 @@ pub struct TraceFrame {
 }
 
 /// Decode a whole trace into frames.
-pub fn frames(ops: &OpsTable, data: &[u8]) -> Result<Vec<TraceFrame>, String> {
+pub(crate) fn frames(ops: &OpsTable, data: &[u8]) -> Result<Vec<TraceFrame>, String> {
     let mut out = Vec::new();
     let mut cur = TraceFrame::default();
     let mut last_qread: Option<i64> = None;
@@ -623,7 +623,7 @@ pub struct FloatStats {
 /// Compare a trace call with a simulated one; `Err` describes the first
 /// difference. A NaN on the simulated side matches anything (the original
 /// read uninitialised memory there).
-pub fn compare_call(
+pub(crate) fn compare_call(
     trace: &IrisCall,
     sim: &IrisCall,
     tol: Tolerance,
