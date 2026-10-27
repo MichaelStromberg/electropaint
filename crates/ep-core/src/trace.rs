@@ -159,16 +159,18 @@ pub enum TraceError {
         source: std::io::Error,
     },
     /// The opcode table is malformed.
-    Table(String),
+    Table { path: PathBuf, msg: String },
     /// The trace is not a well-formed EPT1 recording.
-    Trace(String),
+    Trace { path: PathBuf, msg: String },
 }
 
 impl fmt::Display for TraceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TraceError::Io { path, source } => write!(f, "{}: {source}", path.display()),
-            TraceError::Table(msg) | TraceError::Trace(msg) => f.write_str(msg),
+            TraceError::Table { path, msg } | TraceError::Trace { path, msg } => {
+                write!(f, "{}: {msg}", path.display())
+            }
         }
     }
 }
@@ -177,7 +179,7 @@ impl std::error::Error for TraceError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             TraceError::Io { source, .. } => Some(source),
-            TraceError::Table(_) | TraceError::Trace(_) => None,
+            TraceError::Table { .. } | TraceError::Trace { .. } => None,
         }
     }
 }
@@ -192,12 +194,18 @@ pub fn load(
         path: ops_json.into(),
         source,
     })?;
-    let ops = OpsTable::parse(&text).map_err(TraceError::Table)?;
+    let ops = OpsTable::parse(&text).map_err(|msg| TraceError::Table {
+        path: ops_json.into(),
+        msg,
+    })?;
     let data = std::fs::read(trace).map_err(|source| TraceError::Io {
         path: trace.into(),
         source,
     })?;
-    frames(&ops, &data).map_err(TraceError::Trace)
+    frames(&ops, &data).map_err(|msg| TraceError::Trace {
+        path: trace.into(),
+        msg,
+    })
 }
 
 #[cfg(test)]

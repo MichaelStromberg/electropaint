@@ -101,7 +101,7 @@ impl std::fmt::Display for RendererError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RendererError::NoDevice => f.write_str("no Metal device"),
-            RendererError::Create(what) => f.write_str(what),
+            RendererError::Create(what) => write!(f, "could not create Metal {what}"),
             RendererError::ShaderCompile(e) => write!(f, "shader compile failed: {e}"),
             RendererError::Pipeline(e) => write!(f, "pipeline: {e}"),
         }

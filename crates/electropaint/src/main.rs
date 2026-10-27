@@ -17,7 +17,6 @@ use objc2_app_kit::{
     NSView, NSWindow, NSWindowStyleMask,
 };
 use objc2_foundation::{NSDefaultRunLoopMode, NSPoint, NSRect, NSRunLoop, NSSize, NSString};
-use objc2_metal::MTLCreateSystemDefaultDevice;
 use objc2_quartz_core::CADisplayLink;
 
 struct Options {
@@ -135,8 +134,7 @@ fn write_snapshot(
     snap: &Snapshot,
     opts: ep_core::Options,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let device = MTLCreateSystemDefaultDevice().ok_or("no Metal device")?;
-    let mut renderer = Renderer::new(device);
+    let mut renderer = Renderer::system_default()?;
     let mut sim = ep_core::Sim::new(opts);
     let (mut frames, mut retraces) = (Vec::new(), 0);
     while retraces < snap.frames && !sim.exited() {
@@ -238,7 +236,10 @@ impl ShowView {
         // SAFETY: NSView's designated initialiser, once, on a fresh allocation.
         let view: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
 
-        let surface = Surface::new().unwrap_or_else(|e| panic!("{e}"));
+        let surface = Surface::new().unwrap_or_else(|e| {
+            eprintln!("electropaint: {e}");
+            std::process::exit(1)
+        });
         // Layer-hosting view: set the layer before asking for one.
         view.setLayer(Some(surface.layer()));
         view.setWantsLayer(true);
