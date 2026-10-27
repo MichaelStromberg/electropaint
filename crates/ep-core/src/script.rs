@@ -574,7 +574,7 @@ mod tests {
     fn mello_text_matches_builtin() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../re/scripts/mello.ep");
         let Ok(text) = std::fs::read_to_string(path) else {
-            return;
+            return crate::testing::re_missing(path);
         };
         assert_eq!(Script::parse(&text), Script::builtin());
     }
@@ -583,7 +583,7 @@ mod tests {
     fn variant_scripts_parse() {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../re/scripts");
         let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
+            return crate::testing::re_missing(dir);
         };
         let base = Script::builtin();
         for e in entries.flatten() {
