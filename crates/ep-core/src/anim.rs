@@ -138,26 +138,31 @@ impl Sim {
         self.seqs.iter().position(|s| s.id == id && s.active)
     }
 
+    /// The actuator id of script id `id`, if `acttable` holds it (the
+    /// spec's "if rec").
+    fn rec_id(&self, id: i32) -> Option<u16> {
+        let id = u16::try_from(id).ok()?;
+        self.recs
+            .get(usize::from(id))
+            .and_then(|r| r.as_ref())
+            .map(|_| id)
+    }
+
     /// `processCommand` for the command of sequence `si` at its cursor.
     fn process_command(&mut self, si: usize, cmd: Command) {
-        let has_rec = |sim: &Sim, id: i32| -> Option<u16> {
-            let id = u16::try_from(id).ok()?;
-            sim.recs
-                .get(usize::from(id))
-                .and_then(|r| r.as_ref())
-                .map(|_| id)
-        };
-        match cmd.op {
-            Op::Frame(_) | Op::AbsFrame(_) => self.seqs[si].advance(),
+        // Each arm says whether the cursor moves on: the spec's "advances
+        // `s.cur`?" column.
+        let advance = match cmd.op {
+            Op::Frame(_) | Op::AbsFrame(_) => true,
             Op::ActLim1(id, v) => {
-                if let Some(id) = has_rec(self, id) {
+                if let Some(id) = self.rec_id(id) {
                     let min = self.controls.act(id).min;
                     self.rec_mut(id).lower = if v < min { min } else { v };
                 }
-                self.seqs[si].advance();
+                true
             }
             Op::ActLim2(id, v) => {
-                if let Some(id) = has_rec(self, id) {
+                if let Some(id) = self.rec_id(id) {
                     let (min, max) = (self.controls.act(id).min, self.controls.act(id).max);
                     let (duration, variance) = (self.seqs[si].duration, self.seqs[si].variance);
                     let r = self.rec_mut(id);
@@ -166,35 +171,35 @@ impl Sim {
                     r.variance = variance;
                     r.enabled = true;
                 }
-                self.seqs[si].advance();
+                true
             }
             Op::ActSet(id, v) => {
-                if let Some(id) = has_rec(self, id) {
+                if let Some(id) = self.rec_id(id) {
                     self.setact(id, v);
                 }
-                self.seqs[si].advance();
+                true
             }
             Op::ActReset(id) => {
-                if let Some(id) = has_rec(self, id) {
+                if let Some(id) = self.rec_id(id) {
                     // Only `val`: for an ep slider the value bar stays put.
                     let a = self.controls.act_mut(id);
                     a.val = a.initval;
                 }
-                self.seqs[si].advance();
+                true
             }
             Op::ActResetAll => {
                 self.reset();
-                self.seqs[si].advance();
+                true
             }
             Op::ActStop(id) => {
-                if let Some(id) = has_rec(self, id) {
+                if let Some(id) = self.rec_id(id) {
                     self.rec_mut(id).enabled = false;
                 }
-                self.seqs[si].advance();
+                true
             }
             Op::ActStopAll => {
                 self.stop_anim();
-                self.seqs[si].advance();
+                true
             }
             Op::SeqDo(id) => {
                 let cf = self.current_frame;
@@ -204,23 +209,20 @@ impl Sim {
                     ts.cur = (!ts.commands.is_empty()).then_some(0);
                     ts.start = cf;
                 }
-                if t != Some(si) {
-                    self.seqs[si].advance();
-                }
+                t != Some(si)
             }
             Op::SeqStop(id) => {
                 let t = self.find_seq(id);
                 if let Some(t) = t {
                     self.seqs[t].cur = None;
                 }
-                if t != Some(si) {
-                    self.seqs[si].advance();
-                }
+                t != Some(si)
             }
             Op::SeqLoop => {
                 let s = &mut self.seqs[si];
                 s.cur = (!s.commands.is_empty()).then_some(0);
                 s.start += s.looplen;
+                false
             }
             // The original only kills the running sequence itself and
             // otherwise spins forever on this command; this is the intended
@@ -230,9 +232,7 @@ impl Sim {
                     self.seqs[t].active = false;
                     self.seqs[t].cur = None;
                 }
-                if self.seqs[si].active {
-                    self.seqs[si].advance();
-                }
+                self.seqs[si].active
             }
             // Broken in the original (kills the wrong sequence); intended:
             // kill every sequence.
@@ -241,24 +241,27 @@ impl Sim {
                     s.active = false;
                     s.cur = None;
                 }
+                false
             }
             Op::Duration(v) => {
                 let s = &mut self.seqs[si];
                 s.duration = if f64::from(v) < 1.0 { 1.0 } else { v };
-                s.advance();
+                true
             }
             Op::Variance(v) => {
-                let s = &mut self.seqs[si];
-                s.variance = v.clamp(0.0, 1.0);
-                s.advance();
+                self.seqs[si].variance = v.clamp(0.0, 1.0);
+                true
             }
             Op::RandDelay(d) => {
                 let e = f64::from(self.exprand());
                 let s = &mut self.seqs[si];
                 let (var, d) = (f64::from(s.variance), f64::from(d));
                 s.start = (f64::from(s.start) + (var * ((e + e) * d) + (1.0 - var) * d)) as f32;
-                s.advance();
+                true
             }
+        };
+        if advance {
+            self.seqs[si].advance();
         }
     }
 

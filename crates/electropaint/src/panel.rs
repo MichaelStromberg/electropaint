@@ -15,7 +15,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use ep_core::colour::hls_to_rgb;
-use ep_core::{Actuator, Kind, Panel, ids};
+use ep_core::{Actuator, Kind, Panel, Sim, ids};
 use ep_metal::show::Show;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -61,6 +61,26 @@ struct Control {
     edited: Cell<Option<Instant>>,
 }
 
+/// The colour tab's grid and its rows for the hue sliders and for the
+/// lightness sliders (shown one set at a time, like ep's two overlapping
+/// slider sets).
+struct ChanRows {
+    grid: Retained<NSGridView>,
+    hue: Vec<isize>,
+    light: Vec<isize>,
+}
+
+impl ChanRows {
+    fn show(&self, hue_mode: bool) {
+        let lightness = !hue_mode;
+        for (rows, hidden) in [(&self.hue, lightness), (&self.light, !lightness)] {
+            for &r in rows {
+                self.grid.rowAtIndex(r).setHidden(hidden);
+            }
+        }
+    }
+}
+
 pub(crate) struct PanelIvars {
     show: Rc<RefCell<Show>>,
     controls: RefCell<Vec<Control>>,
@@ -68,9 +88,7 @@ pub(crate) struct PanelIvars {
     window: RefCell<Option<Retained<NSPanel>>>,
     /// `--controls`: keep the panel up regardless of ep's full-screen state.
     pinned: bool,
-    /// Grid rows for the hue sliders and the lightness sliders (shown one
-    /// set at a time, like ep's two overlapping slider sets).
-    chan_rows: RefCell<Option<(Retained<NSGridView>, Vec<isize>, Vec<isize>)>>,
+    chan_rows: RefCell<Option<ChanRows>>,
     timer: RefCell<Option<Retained<NSTimer>>>,
 }
 
@@ -345,7 +363,11 @@ impl PanelController {
             self.slider(mtm, 0.0, 1.0, Bind::Value(ids::dwell(i)), 100.0)
         }));
         let grid_view = grid(mtm, rows);
-        *self.ivars().chan_rows.borrow_mut() = Some((grid_view.clone(), hue_rows, light_rows));
+        *self.ivars().chan_rows.borrow_mut() = Some(ChanRows {
+            grid: grid_view.clone(),
+            hue: hue_rows,
+            light: light_rows,
+        });
 
         let (min, max) = self.range(ids::CHAN_RATE);
         let chanrate = hstack(
@@ -623,64 +645,61 @@ impl PanelController {
             if c.edited.get().is_some_and(|t| now - t < EDIT_GRACE) {
                 continue;
             }
-            match c.bind {
-                Bind::Value(id) => {
-                    if let (Some(s), Some(v)) = (c.view.downcast_ref::<NSControl>(), sim.value(id))
-                    {
-                        s.setDoubleValue(f64::from(v));
-                    }
-                }
-                Bind::Press(id) => {
-                    if let Some(b) = c.view.downcast_ref::<NSButton>() {
-                        let on = sim.is_on(id);
-                        b.setState(if on {
-                            NSControlStateValueOn
-                        } else {
-                            NSControlStateValueOff
-                        });
-                    }
-                }
-                Bind::Readout(id) => {
-                    if let (Some(t), Some(v)) =
-                        (c.view.downcast_ref::<NSTextField>(), sim.value(id))
-                    {
-                        t.setStringValue(&NSString::from_str(&format!("{v:.3}")));
-                    }
-                }
-                Bind::Swatch(i) => {
-                    if let Some(b) = c.view.downcast_ref::<NSBox>() {
-                        let hue = sim.value(ids::hue_slider(i)).unwrap_or(0.0);
-                        let light = sim.value(ids::light_slider(i)).unwrap_or(0.5);
-                        let [r, g, bl] = hls_to_rgb(f64::from(hue) % 1.0, f64::from(light), 1.0);
-                        b.setFillColor(&NSColor::colorWithSRGBRed_green_blue_alpha(
-                            f64::from(r),
-                            f64::from(g),
-                            f64::from(bl),
-                            1.0,
-                        ));
-                    }
-                }
-                Bind::Puck(axis) => {
-                    if let Some(s) = c.view.downcast_ref::<NSControl>() {
-                        s.setDoubleValue(f64::from(self.ivars().puck.get()[axis]));
-                    }
-                }
-                Bind::ChanMode => {
-                    if let Some(s) = c.view.downcast_ref::<NSSegmentedControl>() {
-                        let lightness = !sim.controls().hue_mode;
-                        s.setSelectedSegment(lightness as isize);
-                    }
-                }
-                Bind::PuckCentre => {}
-            }
+            self.show_control(c, sim);
         }
-        if let Some((grid, hue, light)) = self.ivars().chan_rows.borrow().as_ref() {
-            let lightness = !sim.controls().hue_mode;
-            for (rows, hidden) in [(hue, lightness), (light, !lightness)] {
-                for &r in rows {
-                    grid.rowAtIndex(r).setHidden(hidden);
+        if let Some(rows) = self.ivars().chan_rows.borrow().as_ref() {
+            rows.show(sim.controls().hue_mode);
+        }
+    }
+
+    /// Sets one control from the simulation.
+    fn show_control(&self, c: &Control, sim: &Sim) {
+        match c.bind {
+            Bind::Value(id) => {
+                if let (Some(s), Some(v)) = (c.view.downcast_ref::<NSControl>(), sim.value(id)) {
+                    s.setDoubleValue(f64::from(v));
                 }
             }
+            Bind::Press(id) => {
+                if let Some(b) = c.view.downcast_ref::<NSButton>() {
+                    let on = sim.is_on(id);
+                    b.setState(if on {
+                        NSControlStateValueOn
+                    } else {
+                        NSControlStateValueOff
+                    });
+                }
+            }
+            Bind::Readout(id) => {
+                if let (Some(t), Some(v)) = (c.view.downcast_ref::<NSTextField>(), sim.value(id)) {
+                    t.setStringValue(&NSString::from_str(&format!("{v:.3}")));
+                }
+            }
+            Bind::Swatch(i) => {
+                if let Some(b) = c.view.downcast_ref::<NSBox>() {
+                    let hue = sim.value(ids::hue_slider(i)).unwrap_or(0.0);
+                    let light = sim.value(ids::light_slider(i)).unwrap_or(0.5);
+                    let [r, g, bl] = hls_to_rgb(f64::from(hue) % 1.0, f64::from(light), 1.0);
+                    b.setFillColor(&NSColor::colorWithSRGBRed_green_blue_alpha(
+                        f64::from(r),
+                        f64::from(g),
+                        f64::from(bl),
+                        1.0,
+                    ));
+                }
+            }
+            Bind::Puck(axis) => {
+                if let Some(s) = c.view.downcast_ref::<NSControl>() {
+                    s.setDoubleValue(f64::from(self.ivars().puck.get()[axis]));
+                }
+            }
+            Bind::ChanMode => {
+                if let Some(s) = c.view.downcast_ref::<NSSegmentedControl>() {
+                    let lightness = !sim.controls().hue_mode;
+                    s.setSelectedSegment(lightness as isize);
+                }
+            }
+            Bind::PuckCentre => {}
         }
     }
 }

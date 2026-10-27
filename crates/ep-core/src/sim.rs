@@ -562,27 +562,7 @@ impl Sim {
         self.gchant = (f64::from(self.gchant + chanrate * speed) % 1.0) as f32;
         // 6. record the head slot
         let s = slot(self.n);
-        self.hist.x[s] = self.puck[0];
-        self.hist.y[s] = self.puck[1];
-        self.hist.dzoom[s] = self.slider(ids::ZOOM);
-        self.hist.arm[s] = self.slider(ids::ARM);
-        self.hist.wrist[s] = self.slider(ids::WRIST);
-        self.dwheel = speed * self.slider(ids::WHEEL);
-        self.hist.dtwist[s] = self.slider(ids::TWIST);
-        self.nlimit = self.slider(ids::N) as i32;
-        self.hist.outline[s] = self.controls.act(ids::OUTLINE).on();
-        self.hist.fatline[s] = self.controls.act(ids::FATLINE).on();
-        self.hist.fill[s] = self.controls.act(ids::FILL).on();
-        self.hist.size[s] = self.slider(ids::SIZE);
-        // RGB: alpha and colour come from the channel chosen last tick.
-        self.hist.alpha[s] = self.controls.act(ids::alpha_dial(self.gchan)).val;
-        self.hist.alphaout[s] = self.controls.act(ids::ALPHA_OUT).val;
-        self.hist.shiny[s] = self.slider(ids::SHINY);
-        self.hist.ambient[s] = self.slider(ids::AMBIENT);
-        self.ghue = self.slider(ids::hue_slider(self.gchan));
-        self.glight = self.slider(ids::light_slider(self.gchan));
-        let rate = self.controls.act(ids::HUE_BACK_RATE).val;
-        self.bhue = (f64::from(self.bhue) + f64::from(speed * rate) * 0.05) as f32;
+        self.record_head_slot(s, speed);
         // 7. wrap the hues into [0,1)
         self.ghue = wrap_unit(self.ghue);
         self.bhue = wrap_unit(self.bhue);
@@ -590,29 +570,9 @@ impl Sim {
         self.hist.hue[s] = self.ghue;
         self.hist.light[s] = self.glight;
         self.choose_channel();
-        for i in 0..5 {
-            let h = (f64::from(self.slider(ids::hue_slider(i))) % 1.0) as f32;
-            let c = hls_to_rgb(
-                f64::from(h),
-                f64::from(self.slider(ids::light_slider(i))),
-                1.0,
-            )
-            .map(rgb_to_irgb);
-            self.gl.mapcolor(0x300 + i as u16, c[0], c[1], c[2]);
-        }
+        self.map_swatches();
         // 9. background
-        if self.controls.act(ids::BACKGROUND).on() {
-            self.bkg = self.gcol as i32 + (NCOLORS >> 1);
-            if BASECOLOR + NCOLORS <= self.bkg {
-                self.bkg -= NCOLORS;
-            }
-            let c = hls_to_rgb(f64::from(self.bhue), 0.5, 1.0);
-            self.bkg_rgba[..3].copy_from_slice(&c);
-        } else {
-            self.bkg = 0;
-            self.bkg_rgba[..3].copy_from_slice(&[0.0; 3]);
-        }
-        self.bkg_rgba[3] = self.controls.act(ids::ALPHA_BACK).val;
+        self.update_background();
         // 10. flip and spin accumulate once per new slot
         if 1.0 <= p0 {
             let dflip = self.slider(ids::FLIP);
@@ -652,6 +612,64 @@ impl Sim {
         // 14. draw and present
         self.drawit();
         self.swap(SwapCause::Frame);
+    }
+
+    /// Main loop step 6: the head slot `s` takes the current controls, and
+    /// the per-tick values (wheel step, strand length, channel colour,
+    /// background hue) are read.
+    fn record_head_slot(&mut self, s: usize, speed: f32) {
+        self.hist.x[s] = self.puck[0];
+        self.hist.y[s] = self.puck[1];
+        self.hist.dzoom[s] = self.slider(ids::ZOOM);
+        self.hist.arm[s] = self.slider(ids::ARM);
+        self.hist.wrist[s] = self.slider(ids::WRIST);
+        self.dwheel = speed * self.slider(ids::WHEEL);
+        self.hist.dtwist[s] = self.slider(ids::TWIST);
+        self.nlimit = self.slider(ids::N) as i32;
+        self.hist.outline[s] = self.controls.act(ids::OUTLINE).on();
+        self.hist.fatline[s] = self.controls.act(ids::FATLINE).on();
+        self.hist.fill[s] = self.controls.act(ids::FILL).on();
+        self.hist.size[s] = self.slider(ids::SIZE);
+        // RGB: alpha and colour come from the channel chosen last tick.
+        self.hist.alpha[s] = self.controls.act(ids::alpha_dial(self.gchan)).val;
+        self.hist.alphaout[s] = self.controls.act(ids::ALPHA_OUT).val;
+        self.hist.shiny[s] = self.slider(ids::SHINY);
+        self.hist.ambient[s] = self.slider(ids::AMBIENT);
+        self.ghue = self.slider(ids::hue_slider(self.gchan));
+        self.glight = self.slider(ids::light_slider(self.gchan));
+        let rate = self.controls.act(ids::HUE_BACK_RATE).val;
+        self.bhue = (f64::from(self.bhue) + f64::from(speed * rate) * 0.05) as f32;
+    }
+
+    /// Main loop step 8: the five channel swatches in the colour map.
+    fn map_swatches(&mut self) {
+        for i in 0..5 {
+            let h = (f64::from(self.slider(ids::hue_slider(i))) % 1.0) as f32;
+            let c = hls_to_rgb(
+                f64::from(h),
+                f64::from(self.slider(ids::light_slider(i))),
+                1.0,
+            )
+            .map(rgb_to_irgb);
+            self.gl.mapcolor(0x300 + i as u16, c[0], c[1], c[2]);
+        }
+    }
+
+    /// Main loop step 9: the background colour, from the background hue
+    /// (`bhue`) when "back" is on, else black.
+    fn update_background(&mut self) {
+        if self.controls.act(ids::BACKGROUND).on() {
+            self.bkg = self.gcol as i32 + (NCOLORS >> 1);
+            if BASECOLOR + NCOLORS <= self.bkg {
+                self.bkg -= NCOLORS;
+            }
+            let c = hls_to_rgb(f64::from(self.bhue), 0.5, 1.0);
+            self.bkg_rgba[..3].copy_from_slice(&c);
+        } else {
+            self.bkg = 0;
+            self.bkg_rgba[..3].copy_from_slice(&[0.0; 3]);
+        }
+        self.bkg_rgba[3] = self.controls.act(ids::ALPHA_BACK).val;
     }
 
     /// Channel selection: a held active button wins; otherwise the first
@@ -952,19 +970,7 @@ impl Sim {
         let Some(cb) = cb else { return };
         let on = |s: &Sim, id: u16| s.controls.act(id).on();
         match cb {
-            Callback::SetFullscreen => {
-                if self.saver {
-                    return;
-                }
-                let full = on(self, ids::FULLSCREEN);
-                // From the full screen button: follow it; from anything
-                // else (the mouse): toggle.
-                if full == (id == ids::FULLSCREEN) {
-                    self.go_fullscreen();
-                } else {
-                    self.go_regularscreen();
-                }
-            }
+            Callback::SetFullscreen => self.set_fullscreen(id),
             Callback::CleanExit => self.exited = true,
             Callback::Reset => self.reset(),
             Callback::SetAuto => {
@@ -979,32 +985,8 @@ impl Sim {
                     self.gl.backbuffer(true);
                 }
             }
-            Callback::SetSmear => {
-                if on(self, id) {
-                    if !self.controls.act(ids::SMOOTH).not_off() {
-                        if !self.controls.act(ids::STOP).not_off() {
-                            self.gl.c4f(self.bkg_rgba);
-                            self.gl.clear();
-                            self.drawit();
-                        }
-                        self.gl.frontbuffer(true);
-                        self.gl.backbuffer(true);
-                    }
-                } else {
-                    self.gl.frontbuffer(false);
-                    self.gl.backbuffer(true);
-                }
-            }
-            Callback::SetZbuf => {
-                if !self.controls.act(id).not_off() {
-                    self.gl.zbuffer(false);
-                } else {
-                    self.gl.zbuffer(true);
-                    if HAS_ZBUFFER {
-                        self.gl.zclear();
-                    }
-                }
-            }
+            Callback::SetSmear => self.set_smear(id),
+            Callback::SetZbuf => self.set_zbuf(id),
             Callback::SaveRange | Callback::SetCenter | Callback::SetRange => {
                 if let Some(s) = self.controls.get(id).and_then(|a| a.slider) {
                     match cb {
@@ -1014,20 +996,71 @@ impl Sim {
                     }
                 }
             }
-            Callback::ResetSlider => {
-                if let Some(s) = self.controls.get(id).and_then(|a| a.slider) {
-                    let init = self.controls.act(self.controls.sliders[s].id).initval;
-                    match self.controls.reset_slider(s) {
-                        Some(Accumulator::Wheel) => self.wheel = init,
-                        Some(Accumulator::Spin) => self.gspin = init,
-                        Some(Accumulator::Flip) => self.gflip = init,
-                        Some(Accumulator::Texture) | None => {}
-                    }
-                }
-            }
+            Callback::ResetSlider => self.reset_slider(id),
             Callback::ResetDial => self.controls.reset_dial(id - 1),
             Callback::ToggleChanMode => self.controls.toggle_chan_mode(id),
             Callback::SetTextureIndex => self.current_texture = 0,
+        }
+    }
+
+    /// `setfullscreen`, from the full screen button or the mouse.
+    fn set_fullscreen(&mut self, id: u16) {
+        if self.saver {
+            return;
+        }
+        let full = self.controls.act(ids::FULLSCREEN).on();
+        // From the full screen button: follow it; from anything
+        // else (the mouse): toggle.
+        if full == (id == ids::FULLSCREEN) {
+            self.go_fullscreen();
+        } else {
+            self.go_regularscreen();
+        }
+    }
+
+    /// `setsmear`: smear on (and smooth off) redraws once and draws into
+    /// both buffers; smear off draws into the back buffer only.
+    fn set_smear(&mut self, id: u16) {
+        if self.controls.act(id).on() {
+            if !self.controls.act(ids::SMOOTH).not_off() {
+                if !self.controls.act(ids::STOP).not_off() {
+                    self.gl.c4f(self.bkg_rgba);
+                    self.gl.clear();
+                    self.drawit();
+                }
+                self.gl.frontbuffer(true);
+                self.gl.backbuffer(true);
+            }
+        } else {
+            self.gl.frontbuffer(false);
+            self.gl.backbuffer(true);
+        }
+    }
+
+    /// `setzbuf`: `zbuffer(on)`, plus `zclear()` when switching on.
+    fn set_zbuf(&mut self, id: u16) {
+        if !self.controls.act(id).not_off() {
+            self.gl.zbuffer(false);
+        } else {
+            self.gl.zbuffer(true);
+            if HAS_ZBUFFER {
+                self.gl.zclear();
+            }
+        }
+    }
+
+    /// `resetslider` (an "R" button): the slider's first stage, or on the
+    /// second, the accumulator it drives back to the slider's initial value.
+    fn reset_slider(&mut self, id: u16) {
+        let Some(s) = self.controls.get(id).and_then(|a| a.slider) else {
+            return;
+        };
+        let init = self.controls.act(self.controls.sliders[s].id).initval;
+        match self.controls.reset_slider(s) {
+            Some(Accumulator::Wheel) => self.wheel = init,
+            Some(Accumulator::Spin) => self.gspin = init,
+            Some(Accumulator::Flip) => self.gflip = init,
+            Some(Accumulator::Texture) | None => {}
         }
     }
 

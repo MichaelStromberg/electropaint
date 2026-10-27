@@ -399,35 +399,12 @@ impl<'a> Decoder<'a> {
         };
         let (mut args, mut ptrs, mut off) = (Vec::with_capacity(d.params.len()), Vec::new(), 0);
         for &(ty, ext) in &d.params {
-            if let Some(ext) = ext {
-                let n = match ext {
-                    Extent::Fixed(n) => n,
-                    Extent::Arg(k) => match args.get(k) {
-                        Some(Arg::Int(v)) => usize::try_from(*v).unwrap_or(0),
-                        _ => 0,
-                    },
-                };
-                let n = if (1..512).contains(&n) { n } else { 0 };
-                let mut v = Vec::with_capacity(n);
-                for i in 0..n {
-                    match be::<4>(pay, off + 4 * i) {
-                        Some(b) => v.push(f32::from_be_bytes(b)),
-                        None => return Some(Err(format!("{}: short payload", d.name))),
-                    }
-                }
-                off += 4 * n;
-                args.push(Arg::Floats(v));
-            } else if ty == Ty::Ptr {
-                ptrs.push(be::<4>(pay, off).map(u32::from_be_bytes).unwrap_or(0));
-                args.push(Arg::Ptr);
-                off += 4;
-            } else {
-                match read_scalar(ty, pay, off) {
-                    Some(a) => args.push(a),
-                    None => return Some(Err(format!("{}: short payload", d.name))),
-                }
-                off += ty.size();
-            }
+            let Some((arg, ptr, size)) = read_param(ty, ext, pay, off, &args) else {
+                return Some(Err(format!("{}: short payload", d.name)));
+            };
+            args.push(arg);
+            ptrs.extend(ptr);
+            off += size;
         }
         off += 4 * d.outs.min(pay.len().saturating_sub(off) / 4);
         let ret = d
@@ -440,6 +417,38 @@ impl<'a> Decoder<'a> {
             ptrs,
             ret,
         }))
+    }
+}
+
+/// One parameter at byte `off` of a payload: the argument, the pointer
+/// value if it is a pointer logged by address, and the bytes it takes.
+/// `ext` is the extent of a pointer logged by value, which may come from an
+/// earlier argument. `None` for a short payload.
+fn read_param(
+    ty: Ty,
+    ext: Option<Extent>,
+    pay: &[u8],
+    off: usize,
+    args: &[Arg],
+) -> Option<(Arg, Option<u32>, usize)> {
+    if let Some(ext) = ext {
+        let n = match ext {
+            Extent::Fixed(n) => n,
+            Extent::Arg(k) => match args.get(k) {
+                Some(Arg::Int(v)) => usize::try_from(*v).unwrap_or(0),
+                _ => 0,
+            },
+        };
+        let n = if (1..512).contains(&n) { n } else { 0 };
+        let v = (0..n)
+            .map(|i| be::<4>(pay, off + 4 * i).map(f32::from_be_bytes))
+            .collect::<Option<Vec<f32>>>()?;
+        Some((Arg::Floats(v), None, 4 * n))
+    } else if ty == Ty::Ptr {
+        let p = be::<4>(pay, off).map(u32::from_be_bytes).unwrap_or(0);
+        Some((Arg::Ptr, Some(p), 4))
+    } else {
+        Some((read_scalar(ty, pay, off)?, None, ty.size()))
     }
 }
 
@@ -834,24 +843,8 @@ pub fn compare(
     absorb(&mut sim, &mut pending, &mut produced);
     for f in 0..limit {
         while pending.is_empty() && !sim.exited() {
-            // A REDRAW belongs to the tick whose frames contain it; a tick
-            // produces at most a handful of frames.
-            let window = &trace[produced.min(limit)..limit.min(produced + 6)];
-            if window.iter().any(|t| t.redraw) {
-                let mut probe = sim.clone();
-                probe.tick();
-                // The startup swap was logged when the simulation was created.
-                let n = probe
-                    .swap_causes()
-                    .iter()
-                    .filter(|c| **c != SwapCause::Startup)
-                    .count();
-                if trace[produced.min(limit)..limit.min(produced + n)]
-                    .iter()
-                    .any(|t| t.redraw)
-                {
-                    sim.redraw();
-                }
+            if redraw_due(&sim, &trace[..limit], produced) {
+                sim.redraw();
             }
             sim.tick();
             absorb(&mut sim, &mut pending, &mut produced);
@@ -886,6 +879,30 @@ pub fn compare(
         rep.frames += 1;
     }
     rep
+}
+
+/// Whether the simulation's next tick should see a REDRAW: the trace reads
+/// one in a frame that tick will produce. `produced` frames are already
+/// accounted for.
+fn redraw_due(sim: &Sim, trace: &[TraceFrame], produced: usize) -> bool {
+    let limit = trace.len();
+    // A REDRAW belongs to the tick whose frames contain it; a tick
+    // produces at most a handful of frames.
+    let window = &trace[produced.min(limit)..limit.min(produced + 6)];
+    if !window.iter().any(|t| t.redraw) {
+        return false;
+    }
+    let mut probe = sim.clone();
+    probe.tick();
+    // The startup swap was logged when the simulation was created.
+    let n = probe
+        .swap_causes()
+        .iter()
+        .filter(|c| **c != SwapCause::Startup)
+        .count();
+    trace[produced.min(limit)..limit.min(produced + n)]
+        .iter()
+        .any(|t| t.redraw)
 }
 
 #[cfg(test)]

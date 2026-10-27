@@ -379,28 +379,55 @@ fn main() {
     }
     let mtm = MainThreadMarker::new().expect("must run on the main thread");
     if let Some(path) = &opts.panel_snapshot {
-        let show = Rc::new(RefCell::new(Show::new(show_options(
-            &opts,
-            seed_base(&opts),
-        ))));
-        for i in 0..300 {
-            let _ = show.borrow_mut().picture(f64::from(i) / 60.0);
-        }
-        let panel = panel::PanelController::new(mtm, show, false, 0);
-        if let Err(e) = panel.snapshot(path) {
-            eprintln!("electropaint: panel snapshot failed: {e}");
-            std::process::exit(1);
-        }
+        write_panel_snapshot(mtm, path, &opts);
         return;
     }
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
 
-    let base = seed_base(&opts);
     let interactive = opts.windowed || opts.controls;
-    let new_show = |seed| Rc::new(RefCell::new(Show::new(show_options(&opts, seed))));
+    let (windows, panel_show) = open_show_windows(mtm, &opts, interactive);
+    let level = if opts.windowed { 0 } else { SHOW_LEVEL };
+    let _panel = interactive.then(|| {
+        panel::PanelController::new(mtm, panel_show.clone().unwrap(), opts.controls, level)
+    });
+
+    #[allow(deprecated)]
+    app.activateIgnoringOtherApps(true);
+    app.run();
+
+    for (_, view) in &windows {
+        view.stop();
+    }
+}
+
+/// `--panel-snapshot`: draws the control panel as it is after five seconds
+/// of the show, then exits.
+fn write_panel_snapshot(mtm: MainThreadMarker, path: &str, opts: &Options) {
+    let show = Rc::new(RefCell::new(Show::new(show_options(opts, seed_base(opts)))));
+    for i in 0..300 {
+        let _ = show.borrow_mut().picture(f64::from(i) / 60.0);
+    }
+    let panel = panel::PanelController::new(mtm, show, false, 0);
+    if let Err(e) = panel.snapshot(path) {
+        eprintln!("electropaint: panel snapshot failed: {e}");
+        std::process::exit(1);
+    }
+}
+
+type ShowWindows = Vec<(Retained<NSWindow>, Retained<ShowView>)>;
+
+/// Opens the shows: one window with `--windowed`, else a borderless
+/// full-screen window on the main display (or on every display). Also
+/// returns the show the control panel drives: the (first) window's.
+fn open_show_windows(
+    mtm: MainThreadMarker,
+    opts: &Options,
+    interactive: bool,
+) -> (ShowWindows, Option<Rc<RefCell<Show>>>) {
+    let base = seed_base(opts);
+    let new_show = |seed| Rc::new(RefCell::new(Show::new(show_options(opts, seed))));
     let mut windows = Vec::new();
-    // The show the control panel drives: the (first) window's.
     let mut panel_show = None;
     if opts.windowed {
         // The original's window: 1280x1024 aspect, at a comfortable size.
@@ -438,16 +465,5 @@ fn main() {
             NSCursor::hide();
         }
     }
-    let level = if opts.windowed { 0 } else { SHOW_LEVEL };
-    let _panel = interactive.then(|| {
-        panel::PanelController::new(mtm, panel_show.clone().unwrap(), opts.controls, level)
-    });
-
-    #[allow(deprecated)]
-    app.activateIgnoringOtherApps(true);
-    app.run();
-
-    for (_, view) in &windows {
-        view.stop();
-    }
+    (windows, panel_show)
 }
