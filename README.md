@@ -4,6 +4,8 @@ A port of SGI's electropaint (`/usr/demos/bin/ep`, IRIX 5.3) to macOS, written
 in Rust with Metal. It runs the original's built-in "mello" show, along with
 every drawing mode and control the original has.
 
+![electropaint's strand of tiles in a window, fading from green at the top to orange at the bottom](docs/images/show.png)
+
 The simulation is a re-implementation from the reverse-engineered binary.
 Its IrisGL call stream matches recordings of the real program running on
 IRIX bit for bit: 18 traces, 3,600 frames in the longest. In screen grabs
@@ -44,6 +46,8 @@ partway through the step. In smear and fade modes, which build trails on
 screen, those refreshes repeat the last step.
 
 ## Controls
+
+<img src="docs/images/controls.png" width="480" alt="The control panel's Shape page: tile and effect toggles, the twelve strand sliders with their low, high and rate settings, position, and playback">
 
 The control panel has the same controls, ranges and behaviour as ep's own
 panels, on two pages: Shape and Colour. It uses full names for ep's terse
