@@ -30,3 +30,15 @@ pub use gl::{Arg, IrisCall, RgbColorIndex};
 pub use panel::{Actuator, Callback, Kind, Panel, ids};
 pub use script::Script;
 pub use sim::{Options, Sim, SwapCause};
+
+#[cfg(test)]
+mod testing {
+    /// A test's files in the git-ignored `re/` are absent: it is skipped,
+    /// unless `EP_REQUIRE_TRACES` is set, which makes their absence a failure.
+    pub(crate) fn re_missing(path: &str) {
+        assert!(
+            std::env::var_os("EP_REQUIRE_TRACES").is_none(),
+            "{path} not present, and EP_REQUIRE_TRACES is set"
+        );
+    }
+}

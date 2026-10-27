@@ -24,7 +24,8 @@ use objc2_screen_saver::ScreenSaverView;
 struct SaverState {
     show: Show,
     surface: Surface,
-    _link: Retained<CADisplayLink>,
+    /// Drives `step:` while the host has the saver animating.
+    link: Option<Retained<CADisplayLink>>,
 }
 
 /// Gives each instance its own seed, like separate ep processes started at
@@ -42,9 +43,9 @@ define_class!(
         #[unsafe(method_id(initWithFrame:isPreview:))]
         fn init_with_frame(this: Allocated<Self>, frame: NSRect, is_preview: Bool) -> Option<Retained<Self>> {
             let this = this.set_ivars(RefCell::new(None));
+            // SAFETY: ScreenSaverView's designated initialiser, once, on a fresh
+            // allocation.
             let view: Option<Retained<Self>> =
-                // SAFETY: ScreenSaverView's designated initialiser, once, on a fresh
-                // allocation.
                 unsafe { msg_send![super(this), initWithFrame: frame, isPreview: is_preview] };
             if let Some(view) = &view {
                 view.setup();
@@ -60,6 +61,32 @@ define_class!(
         #[unsafe(method(step:))]
         fn step(&self, link: &CADisplayLink) {
             self.advance(link.targetTimestamp());
+        }
+
+        #[unsafe(method(startAnimation))]
+        fn start_animation(&self) {
+            // SAFETY: ScreenSaverView's own `startAnimation`, which overrides
+            // must call.
+            let _: () = unsafe { msg_send![super(self), startAnimation] };
+            if let Some(st) = self.ivars().borrow_mut().as_mut()
+                && st.link.is_none()
+            {
+                st.link = Some(self.display_link());
+            }
+        }
+
+        /// The host stops animating when a preview is hidden or the saver
+        /// ends. Invalidating the display link stops the frames and lets go
+        /// of this view, which the link retains.
+        #[unsafe(method(stopAnimation))]
+        fn stop_animation(&self) {
+            // SAFETY: ScreenSaverView's own `stopAnimation`, which overrides
+            // must call.
+            let _: () = unsafe { msg_send![super(self), stopAnimation] };
+            let link = self.ivars().borrow_mut().as_mut().and_then(|st| st.link.take());
+            if let Some(link) = link {
+                link.invalidate();
+            }
         }
 
         /// The legacyScreenSaver host on recent macOS may keep instances
@@ -102,16 +129,22 @@ impl SaverView {
         self.setWantsLayer(true);
 
         let seed = Options::clock_seed() + INSTANCES.fetch_add(1, Ordering::Relaxed);
-        // SAFETY: `step:` is defined on this class and takes the `CADisplayLink`.
-        let link = unsafe { self.displayLinkWithTarget_selector(self as &AnyObject, sel!(step:)) };
-        // SAFETY: the main run loop, from the main thread (`MainThreadOnly`).
-        unsafe { link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSDefaultRunLoopMode) };
+        let link = self.display_link();
         let show = Show::new(Options::new(seed).saver());
         *self.ivars().borrow_mut() = Some(SaverState {
             show,
             surface,
-            _link: link,
+            link: Some(link),
         });
+    }
+
+    /// A display link calling `step:` at this view's display's refresh rate.
+    fn display_link(&self) -> Retained<CADisplayLink> {
+        // SAFETY: `step:` is defined on this class and takes the `CADisplayLink`.
+        let link = unsafe { self.displayLinkWithTarget_selector(self as &AnyObject, sel!(step:)) };
+        // SAFETY: the main run loop, from the main thread (`MainThreadOnly`).
+        unsafe { link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSDefaultRunLoopMode) };
+        link
     }
 
     fn advance(&self, time: f64) {
