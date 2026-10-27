@@ -10,10 +10,10 @@ publish.workspace = true
 ep-core = { path = "../ep-core" }
 ep-metal = { path = "../ep-metal" }
 objc2 = "0.6.5"
-objc2-foundation = "0.3.2"
-objc2-app-kit = "0.3.2"
-objc2-metal = "0.3.2"
-objc2-quartz-core = "0.3.2"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSDictionary", "NSGeometry", "NSRunLoop", "NSString", "NSTimer", "std"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSBitmapImageRep", "NSBox", "NSButton", "NSButtonCell", "NSCell", "NSColor", "NSControl", "NSCursor", "NSEvent", "NSFont", "NSFontDescriptor", "NSGraphics", "NSGridView", "NSImageRep", "NSLayoutAnchor", "NSLayoutConstraint", "NSPanel", "NSResponder", "NSRunningApplication", "NSScreen", "NSSegmentedControl", "NSSlider", "NSSliderCell", "NSStackView", "NSTabView", "NSTabViewItem", "NSTextField", "NSUserInterfaceLayout", "NSView", "NSWindow", "objc2-core-foundation", "objc2-quartz-core", "std"] }
+objc2-metal = { version = "0.3.2", default-features = false, features = ["MTLDevice", "std"] }
+objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["CADisplayLink", "std"] }
 png = "0.18.1"
 
 [lints]

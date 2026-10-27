@@ -9,9 +9,9 @@ publish.workspace = true
 [dependencies]
 ep-core = { path = "../ep-core" }
 objc2 = "0.6.5"
-objc2-foundation = "0.3.2"
-objc2-metal = "0.3.2"
-objc2-quartz-core = "0.3.2"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSGeometry", "NSString", "objc2-core-foundation", "std"] }
+objc2-metal = { version = "0.3.2", default-features = false, features = ["MTLBlitCommandEncoder", "MTLBuffer", "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue", "MTLDepthStencil", "MTLDevice", "MTLDrawable", "MTLLibrary", "MTLPixelFormat", "MTLRenderCommandEncoder", "MTLRenderPass", "MTLRenderPipeline", "MTLResource", "MTLTexture", "MTLTypes", "std"] }
+objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["CALayer", "CAMetalLayer", "objc2-core-foundation", "objc2-metal", "std"] }
 
 [lints]
 workspace = true
