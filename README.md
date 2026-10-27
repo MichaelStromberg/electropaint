@@ -160,7 +160,41 @@ recordings skip themselves when `re/` is absent.
 
     cargo test --release --workspace
 
+## History
+
+David Tristram wrote electropaint at NASA Ames Research Center, in the
+Numerical Aerodynamic Simulation Systems Division, where he was one of the
+authors of the [Panel Library][ntrs], a toolkit of sliders and buttons for
+Silicon Graphics IRIS workstations. ep came with it: his [August 1988
+post][post-1988] of the library to the comp.sys.sgi newsgroup says "Try ep,
+the psychedelic electro-paint program." By 1990 he was at SGI, where Paul
+Haeberli sent a binary round the same newsgroup as ["Dave Tristram's
+Electro-Paint Productivity Tool"][post-1990], and Tristram [wrote in the
+newsgroup][tristram-1990] that day: "It has no purposes, except those that are self-evident.
+It has a reset button. It has subtle bugs. It's free." He suggested starting
+with a little `wrst` and some `zoom`.
+
+ep shipped with IRIX in `/usr/demos/bin` and ran as one of its screen
+savers, so on idle SGI workstations the strand curled across the screen by
+itself, playing the built-in "mello" script he wrote. He also took it on
+stage: the Grateful Dead's 1992 video [*Infrared Sightings*][sightings]
+credits him as "electropaint graphics programmer/artist", and he went on to
+found the visual performance group Raster Masters. People still rebuild it:
+[StonerView][stonerview] for xscreensaver, [ElectroPortis][electroportis]
+for Windows, [browser versions][sgi-demos] and an [earlier macOS screen
+saver][osx]. Electropaint is a US trademark of Tristram Visual.
+
+[ntrs]: https://ntrs.nasa.gov/citations/19920000697
+[post-1988]: https://ftp.math.utah.edu/pub/mirrors/www.tuhs.org/Unix_Usenet/comp.sys.sgi/1988-August/007848.html
+[post-1990]: https://ftp.math.utah.edu/pub/mirrors/www.tuhs.org/Unix_Usenet/comp.sys.sgi/1990-September/004572.html
+[tristram-1990]: https://ftp.math.utah.edu/pub/mirrors/www.tuhs.org/Unix_Usenet/comp.sys.sgi/1990-September/000535.html
+[sightings]: https://en.wikipedia.org/wiki/Infrared_Sightings
+[stonerview]: https://www.eblong.com/zarf/stonerview.html
+[electroportis]: https://github.com/drvink/electroportis
+[sgi-demos]: https://github.com/sgi-demos/sgi-demos
+[osx]: https://github.com/sgi-demos/electropaintosx
+
 ## Thanks
 
-Thanks to David Tristram, whose name is on the original electropaint's
-control panel and who wrote the "mello" show that this port runs.
+Thank you to David Tristram for electropaint, and for the "mello" show this
+port reproduces.
