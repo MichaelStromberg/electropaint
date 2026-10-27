@@ -1,0 +1,6 @@
+# Reverse-engineering artifacts: SGI's copyrighted binaries, Ghidra projects,
+# decompiled output and traces stay local (see docs/ for our own specs).
+/re/
+
+# Rust
+/target/

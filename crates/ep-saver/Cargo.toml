@@ -1,0 +1,20 @@
+[package]
+name = "ep-saver"
+description = "electropaint as a macOS screen saver (.saver bundle)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ep-core = { path = "../ep-core" }
+ep-metal = { path = "../ep-metal" }
+objc2 = "0.6.5"
+objc2-foundation = "0.3.2"
+objc2-app-kit = "0.3.2"
+objc2-metal = "0.3.2"
+objc2-quartz-core = "0.3.2"
+objc2-screen-saver = "0.3.2"
