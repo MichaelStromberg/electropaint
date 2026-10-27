@@ -129,7 +129,7 @@ impl Builder {
         {
             let x = 1.0 + i as f32;
             self.dial(id, Some(label), x, 0.0, min, max, init);
-            self.reset_button(id + 1, x, 1.0, Kind::DialReset, c);
+            self.reset_button(id + ids::DIAL_RESET, x, 1.0, Kind::DialReset, c);
         }
         for i in 0..5 {
             let x = i as f32;

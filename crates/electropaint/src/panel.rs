@@ -24,10 +24,11 @@ use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameDarkAqua, NSApplication,
     NSBackingStoreType, NSBox, NSBoxType, NSButton, NSColor, NSControl, NSControlSize,
     NSControlStateValueOff, NSControlStateValueOn, NSFont, NSGridCell, NSGridCellPlacement,
-    NSGridRowAlignment, NSGridView, NSImage, NSLayoutAttribute, NSLayoutConstraintOrientation,
-    NSPanel, NSSegmentedControl, NSSlider, NSStackView, NSStackViewGravity, NSTextAlignment,
-    NSTextField, NSTitlePosition, NSUserInterfaceLayoutOrientation, NSView, NSWindowDelegate,
-    NSWindowOrderingMode, NSWindowStyleMask,
+    NSGridRowAlignment, NSGridView, NSImage, NSLayoutAttribute, NSLayoutConstraint,
+    NSLayoutConstraintOrientation, NSPanel, NSSegmentedControl, NSSlider, NSStackView,
+    NSStackViewGravity, NSTextAlignment, NSTextField, NSTitlePosition,
+    NSUserInterfaceLayoutOrientation, NSView, NSWindowDelegate, NSWindowOrderingMode,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSArray, NSEdgeInsets, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer,
@@ -266,7 +267,7 @@ impl PanelController {
             v.setTranslatesAutoresizingMaskIntoConstraints(false);
             root.addSubview(v);
         }
-        for c in [
+        activate(&[
             picker_view
                 .topAnchor()
                 .constraintEqualToAnchor_constant(&root.topAnchor(), 14.0),
@@ -276,10 +277,6 @@ impl PanelController {
                 .constraintEqualToAnchor_constant(&slot.bottomAnchor(), MARGIN),
             root.bottomAnchor()
                 .constraintEqualToAnchor_constant(&bar.bottomAnchor(), MARGIN),
-        ] {
-            c.setActive(true);
-        }
-        for c in [
             picker_view
                 .centerXAnchor()
                 .constraintEqualToAnchor(&root.centerXAnchor()),
@@ -291,9 +288,7 @@ impl PanelController {
                 .constraintEqualToAnchor(&slot.leadingAnchor()),
             bar.trailingAnchor()
                 .constraintEqualToAnchor(&slot.trailingAnchor()),
-        ] {
-            c.setActive(true);
-        }
+        ]);
         for page in &pages {
             page.setTranslatesAutoresizingMaskIntoConstraints(false);
         }
@@ -389,18 +384,7 @@ impl PanelController {
                 old.removeFromSuperview();
             }
             slot.addSubview(page);
-            for (a, b) in [
-                (page.leadingAnchor(), slot.leadingAnchor()),
-                (page.trailingAnchor(), slot.trailingAnchor()),
-            ] {
-                a.constraintEqualToAnchor(&b).setActive(true);
-            }
-            for (a, b) in [
-                (page.topAnchor(), slot.topAnchor()),
-                (page.bottomAnchor(), slot.bottomAnchor()),
-            ] {
-                a.constraintEqualToAnchor(&b).setActive(true);
-            }
+            pin_edges(page, slot);
         }
         if let Some(picker) = self.ivars().picker.borrow().as_ref() {
             picker.setSelectedSegment(index as isize);
@@ -451,7 +435,12 @@ impl PanelController {
                 vec![
                     name(mtm, text),
                     self.slider(mtm, min, max, Bind::Value(id), 200.0),
-                    self.symbol_button(mtm, "arrow.counterclockwise", "Reset", Bind::Press(id + 1)),
+                    self.symbol_button(
+                        mtm,
+                        "arrow.counterclockwise",
+                        "Reset",
+                        Bind::Press(id + ids::DIAL_RESET),
+                    ),
                 ]
             })
             .collect();
@@ -462,8 +451,7 @@ impl PanelController {
         mode.setLabel_forSegment(&ns("Hue"), 0);
         mode.setLabel_forSegment(&ns("Lightness"), 1);
         mode.setControlSize(NSControlSize::Small);
-        let mode: Retained<NSView> = Retained::into_super(Retained::into_super(mode));
-        self.register(&mode, Bind::ChanMode);
+        let mode = self.add(&*mode, Bind::ChanMode);
 
         let (min, max) = self.range(ids::CHAN_RATE);
         let cycling = hstack(
@@ -520,15 +508,14 @@ impl PanelController {
                 .to_vec(),
         ];
         for (id, text) in SLIDERS {
-            let (min, max) = self.range(id);
-            let (rmin, rmax) = self.range(id + ids::SLIDER_RATE);
+            let [value, low, high, rate] = self.ep_slider(mtm, id, 180.0, 70.0);
             rows.push(vec![
                 name(mtm, text),
-                self.slider(mtm, min, max, Bind::Value(id), 180.0),
+                value,
                 self.readout(mtm, Bind::Readout(id)),
-                self.slider(mtm, min, max, Bind::Value(id + ids::SLIDER_LOWER), 70.0),
-                self.slider(mtm, min, max, Bind::Value(id + ids::SLIDER_UPPER), 70.0),
-                self.slider(mtm, rmin, rmax, Bind::Value(id + ids::SLIDER_RATE), 70.0),
+                low,
+                high,
+                rate,
                 self.bounce_button(mtm, id),
                 self.reset_button(mtm, id),
             ]);
@@ -567,18 +554,17 @@ impl PanelController {
             (&mut hue_rows, ids::hue_slider as fn(usize) -> u16),
             (&mut light_rows, ids::light_slider),
         ] {
-            for (text, offset) in [
-                ("Value", None),
-                ("Low", Some(ids::SLIDER_LOWER)),
-                ("High", Some(ids::SLIDER_UPPER)),
-                ("Rate", Some(ids::SLIDER_RATE)),
-            ] {
+            let sliders: Vec<_> = channels
+                .clone()
+                .map(|i| self.ep_slider(mtm, base(i), 90.0, 90.0))
+                .collect();
+            for (k, text) in ["Value", "Low", "High", "Rate"].into_iter().enumerate() {
                 set.push(rows.len() as isize);
-                rows.push(row(text, &|i| {
-                    let id = base(i) + offset.unwrap_or(0);
-                    let (min, max) = self.range(id);
-                    self.slider(mtm, min, max, Bind::Value(id), 90.0)
-                }));
+                rows.push(
+                    std::iter::once(name(mtm, text))
+                        .chain(sliders.iter().map(|s| s[k].clone()))
+                        .collect(),
+                );
             }
             set.push(rows.len() as isize);
             rows.push(row("", &|i| {
@@ -615,8 +601,7 @@ impl PanelController {
         for (i, text) in labels.iter().enumerate() {
             picker.setLabel_forSegment(&ns(text), i as isize);
         }
-        let view: Retained<NSView> = Retained::into_super(Retained::into_super(picker.clone()));
-        self.register(&view, Bind::Page);
+        self.add(&*picker, Bind::Page);
         picker
     }
 
@@ -653,11 +638,22 @@ impl PanelController {
         (f64::from(lo), f64::from(hi))
     }
 
-    fn register(&self, view: &Retained<NSView>, bind: Bind) {
-        self.register_control(view, bind, false, 0.0);
+    /// Wires `control` to the panel (tag, target and action for an
+    /// `NSControl`) and returns it as a view.
+    fn add(&self, control: &(impl AsRef<NSView> + ?Sized), bind: Bind) -> Retained<NSView> {
+        self.add_with(control, bind, false, 0.0)
     }
 
-    fn register_control(&self, view: &Retained<NSView>, bind: Bind, tinted: bool, tolerance: f64) {
+    /// `add` for a symbol toggle (`tinted`) or a slider (`tolerance`); see
+    /// `Control`.
+    fn add_with(
+        &self,
+        control: &(impl AsRef<NSView> + ?Sized),
+        bind: Bind,
+        tinted: bool,
+        tolerance: f64,
+    ) -> Retained<NSView> {
+        let view = into_view(control);
         let mut controls = self.ivars().controls.borrow_mut();
         if let Some(control) = view.downcast_ref::<NSControl>() {
             control.setTag(controls.len() as isize);
@@ -677,6 +673,7 @@ impl PanelController {
             shown: Cell::new(None),
             tolerance,
         });
+        view
     }
 
     fn slider(
@@ -695,33 +692,25 @@ impl PanelController {
         s.widthAnchor()
             .constraintEqualToConstant(width)
             .setActive(true);
-        let view: Retained<NSView> = Retained::into_super(Retained::into_super(s));
-        self.register_control(&view, bind, false, KNOB_STEP * (max - min) / width);
-        view
+        self.add_with(&*s, bind, false, KNOB_STEP * (max - min) / width)
     }
 
     fn checkbox(&self, mtm: MainThreadMarker, title: &str, bind: Bind) -> Retained<NSView> {
         // SAFETY: no target or action; `register` sets them.
         let b = unsafe { NSButton::checkboxWithTitle_target_action(&ns(title), None, None, mtm) };
-        let view: Retained<NSView> = Retained::into_super(Retained::into_super(b));
-        self.register(&view, bind);
-        view
+        self.add(&*b, bind)
     }
 
     fn radio(&self, mtm: MainThreadMarker, bind: Bind) -> Retained<NSView> {
         // SAFETY: no target or action; `register` sets them.
         let b = unsafe { NSButton::radioButtonWithTitle_target_action(&ns(""), None, None, mtm) };
-        let view: Retained<NSView> = Retained::into_super(Retained::into_super(b));
-        self.register(&view, bind);
-        view
+        self.add(&*b, bind)
     }
 
     fn button(&self, mtm: MainThreadMarker, title: &str, bind: Bind) -> Retained<NSView> {
         // SAFETY: no target or action; `register` sets them.
         let b = unsafe { NSButton::buttonWithTitle_target_action(&ns(title), None, None, mtm) };
-        let view: Retained<NSView> = Retained::into_super(Retained::into_super(b));
-        self.register(&view, bind);
-        view
+        self.add(&*b, bind)
     }
 
     /// A borderless SF Symbols button, tinted with the accent colour while
@@ -742,9 +731,26 @@ impl PanelController {
         let b = unsafe { NSButton::buttonWithImage_target_action(&image, None, None, mtm) };
         b.setBordered(false);
         b.setToolTip(Some(&ns(tip)));
-        let view: Retained<NSView> = Retained::into_super(Retained::into_super(b));
-        self.register_control(&view, bind, true, 0.0);
-        view
+        self.add_with(&*b, bind, true, 0.0)
+    }
+
+    /// The value, low, high and rate sliders of the ep slider whose main
+    /// actuator is `id`. The bounds take the value's range.
+    fn ep_slider(
+        &self,
+        mtm: MainThreadMarker,
+        id: u16,
+        value_width: f64,
+        width: f64,
+    ) -> [Retained<NSView>; 4] {
+        let (min, max) = self.range(id);
+        let (rmin, rmax) = self.range(id + ids::SLIDER_RATE);
+        [
+            self.slider(mtm, min, max, Bind::Value(id), value_width),
+            self.slider(mtm, min, max, Bind::Value(id + ids::SLIDER_LOWER), width),
+            self.slider(mtm, min, max, Bind::Value(id + ids::SLIDER_UPPER), width),
+            self.slider(mtm, rmin, rmax, Bind::Value(id + ids::SLIDER_RATE), width),
+        ]
     }
 
     /// The bounce toggle of the ep slider whose main actuator is `id`.
@@ -777,9 +783,7 @@ impl PanelController {
         t.widthAnchor()
             .constraintEqualToConstant(56.0)
             .setActive(true);
-        let view: Retained<NSView> = Retained::into_super(Retained::into_super(t));
-        self.register(&view, bind);
-        view
+        self.add(&*t, bind)
     }
 
     fn swatch(&self, mtm: MainThreadMarker, channel: usize) -> Retained<NSView> {
@@ -794,9 +798,7 @@ impl PanelController {
         b.heightAnchor()
             .constraintEqualToConstant(16.0)
             .setActive(true);
-        let view: Retained<NSView> = Retained::into_super(b);
-        self.register(&view, Bind::Swatch(channel));
-        view
+        self.add(&*b, Bind::Swatch(channel))
     }
 
     // ------------------------------------------------------------ events
@@ -916,7 +918,7 @@ impl PanelController {
                 continue;
             }
             c.shown.set(Some(state));
-            self.show_control(c, sim);
+            show_control(c, state);
         }
         if let Some(rows) = self.ivars().chan_rows.borrow().as_ref() {
             rows.show(sim.controls().hue_mode);
@@ -939,65 +941,66 @@ impl PanelController {
             Bind::PuckCentre | Bind::Page => [0.0; 2],
         }
     }
+}
 
-    /// Sets one control from the simulation.
-    fn show_control(&self, c: &Control, sim: &Sim) {
-        match c.bind {
-            Bind::Value(id) => {
-                if let (Some(s), Some(v)) = (c.view.downcast_ref::<NSControl>(), sim.value(id)) {
-                    s.setDoubleValue(f64::from(v));
-                }
+/// Sets control `c` to show `state`, as computed by `state_of`.
+fn show_control(c: &Control, state: [f32; 2]) {
+    let [a, b] = state;
+    match c.bind {
+        Bind::Value(_) | Bind::Puck(_) => {
+            if let (Some(s), false) = (c.view.downcast_ref::<NSControl>(), a.is_nan()) {
+                s.setDoubleValue(f64::from(a));
             }
-            Bind::Press(id) => {
-                if let Some(b) = c.view.downcast_ref::<NSButton>() {
-                    let on = sim.is_on(id);
-                    b.setState(if on {
-                        NSControlStateValueOn
-                    } else {
-                        NSControlStateValueOff
-                    });
-                    if c.tinted {
-                        let tint = if on {
-                            NSColor::controlAccentColor()
-                        } else {
-                            NSColor::secondaryLabelColor()
-                        };
-                        b.setContentTintColor(Some(&tint));
-                    }
-                }
-            }
-            Bind::Readout(id) => {
-                if let (Some(t), Some(v)) = (c.view.downcast_ref::<NSTextField>(), sim.value(id)) {
-                    t.setStringValue(&NSString::from_str(&format!("{v:.3}")));
-                }
-            }
-            Bind::Swatch(i) => {
-                if let Some(b) = c.view.downcast_ref::<NSBox>() {
-                    let hue = sim.value(ids::hue_slider(i)).unwrap_or(0.0);
-                    let light = sim.value(ids::light_slider(i)).unwrap_or(0.5);
-                    let [r, g, bl] = hls_to_rgb(f64::from(hue) % 1.0, f64::from(light), 1.0);
-                    b.setFillColor(&NSColor::colorWithSRGBRed_green_blue_alpha(
-                        f64::from(r),
-                        f64::from(g),
-                        f64::from(bl),
-                        1.0,
-                    ));
-                }
-            }
-            Bind::Puck(axis) => {
-                if let Some(s) = c.view.downcast_ref::<NSControl>() {
-                    s.setDoubleValue(f64::from(self.ivars().puck.get()[axis]));
-                }
-            }
-            Bind::ChanMode => {
-                if let Some(s) = c.view.downcast_ref::<NSSegmentedControl>() {
-                    let lightness = !sim.controls().hue_mode;
-                    s.setSelectedSegment(lightness as isize);
-                }
-            }
-            Bind::PuckCentre | Bind::Page => {}
         }
+        Bind::Press(_) => {
+            if let Some(button) = c.view.downcast_ref::<NSButton>() {
+                show_on(button, a != 0.0, c.tinted);
+            }
+        }
+        Bind::Readout(_) => {
+            if let (Some(t), false) = (c.view.downcast_ref::<NSTextField>(), a.is_nan()) {
+                t.setStringValue(&NSString::from_str(&format!("{a:.3}")));
+            }
+        }
+        Bind::Swatch(_) => {
+            if let Some(swatch) = c.view.downcast_ref::<NSBox>() {
+                let hue = if a.is_nan() { 0.0 } else { a };
+                let light = if b.is_nan() { 0.5 } else { b };
+                swatch.setFillColor(&swatch_colour(hue, light));
+            }
+        }
+        Bind::ChanMode => {
+            if let Some(s) = c.view.downcast_ref::<NSSegmentedControl>() {
+                // Hue mode shows segment 0, lightness segment 1.
+                s.setSelectedSegment(isize::from(a == 0.0));
+            }
+        }
+        Bind::PuckCentre | Bind::Page => {}
     }
+}
+
+/// A toggle's state; a `tinted` symbol button also takes the accent colour
+/// while on.
+fn show_on(button: &NSButton, on: bool, tinted: bool) {
+    button.setState(if on {
+        NSControlStateValueOn
+    } else {
+        NSControlStateValueOff
+    });
+    if tinted {
+        let tint = if on {
+            NSColor::controlAccentColor()
+        } else {
+            NSColor::secondaryLabelColor()
+        };
+        button.setContentTintColor(Some(&tint));
+    }
+}
+
+/// A colour channel's swatch: its hue at full saturation and its lightness.
+fn swatch_colour(hue: f32, light: f32) -> Retained<NSColor> {
+    let [r, g, b] = hls_to_rgb(f64::from(hue) % 1.0, f64::from(light), 1.0);
+    NSColor::colorWithSRGBRed_green_blue_alpha(f64::from(r), f64::from(g), f64::from(b), 1.0)
 }
 
 // ----------------------------------------------------------------- helpers
@@ -1145,17 +1148,29 @@ fn card(mtm: MainThreadMarker, content: Retained<NSView>) -> Retained<NSView> {
     background.setTitlePosition(NSTitlePosition::NoTitle);
     background.setTranslatesAutoresizingMaskIntoConstraints(false);
     s.addSubview_positioned_relativeTo(&background, NSWindowOrderingMode::Below, None);
-    for (a, b) in [
-        (background.leadingAnchor(), s.leadingAnchor()),
-        (background.trailingAnchor(), s.trailingAnchor()),
-    ] {
-        a.constraintEqualToAnchor(&b).setActive(true);
-    }
-    for (a, b) in [
-        (background.topAnchor(), s.topAnchor()),
-        (background.bottomAnchor(), s.bottomAnchor()),
-    ] {
-        a.constraintEqualToAnchor(&b).setActive(true);
-    }
+    pin_edges(&background, &s);
     into_view(&*s)
+}
+
+/// Activates `constraints` together.
+fn activate(constraints: &[Retained<NSLayoutConstraint>]) {
+    NSLayoutConstraint::activateConstraints(&NSArray::from_retained_slice(constraints));
+}
+
+/// Pins `child`'s edges to `parent`'s.
+fn pin_edges(child: &NSView, parent: &NSView) {
+    activate(&[
+        child
+            .leadingAnchor()
+            .constraintEqualToAnchor(&parent.leadingAnchor()),
+        child
+            .trailingAnchor()
+            .constraintEqualToAnchor(&parent.trailingAnchor()),
+        child
+            .topAnchor()
+            .constraintEqualToAnchor(&parent.topAnchor()),
+        child
+            .bottomAnchor()
+            .constraintEqualToAnchor(&parent.bottomAnchor()),
+    ]);
 }

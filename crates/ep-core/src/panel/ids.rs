@@ -50,6 +50,8 @@ pub const SLIDER_VALUE: u16 = 3;
 pub const SLIDER_RATE: u16 = 4;
 pub const SLIDER_BOUNCE: u16 = 5;
 pub const SLIDER_RESET: u16 = 6;
+/// Offset of a colour-panel dial's "R" button from the dial.
+pub const DIAL_RESET: u16 = 1;
 
 /// First id of colour channel `i` (0..5): its alpha dial.
 pub const fn channel_base(i: usize) -> u16 {

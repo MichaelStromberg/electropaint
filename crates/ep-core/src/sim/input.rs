@@ -223,7 +223,7 @@ impl Sim {
                 }
             }
             Callback::ResetSlider => self.reset_slider(id),
-            Callback::ResetDial => self.controls.reset_dial(id - 1),
+            Callback::ResetDial => self.controls.reset_dial(id - ids::DIAL_RESET),
             Callback::ToggleChanMode => self.controls.toggle_chan_mode(id),
             // Selects texture 0, "no texture": this build has none.
             Callback::SetTextureIndex => {}
