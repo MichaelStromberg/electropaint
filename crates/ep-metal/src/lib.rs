@@ -166,7 +166,11 @@ impl Renderer {
             .newBufferWithLength_options(row * height, MTLResourceOptions::StorageModeShared)
             .expect("readback buffer");
         let blit = cb.blitCommandEncoder().expect("blit encoder");
-        let src = &self.targets.as_ref().unwrap().color[self.front].resolved;
+        let targets = self.targets.as_ref().expect("encode created the targets");
+        let src = &targets.color[self.front].resolved;
+        // SAFETY: `src` is a `width` x `height` BGRA8 texture (4 bytes per
+        // pixel) and `buf` holds exactly `row * height` bytes; both outlive
+        // the command buffer, which is waited for below.
         unsafe {
             blit.copyFromTexture_sourceSlice_sourceLevel_sourceOrigin_sourceSize_toBuffer_destinationOffset_destinationBytesPerRow_destinationBytesPerImage(
                 src,
@@ -184,6 +188,8 @@ impl Renderer {
         cb.commit();
         cb.waitUntilCompleted();
         let ptr = buf.contents().as_ptr() as *const u8;
+        // SAFETY: shared storage of `row * height` bytes, which the GPU
+        // finished writing (`waitUntilCompleted`) and nothing else touches.
         unsafe { std::slice::from_raw_parts(ptr, row * height) }.to_vec()
     }
 
@@ -253,7 +259,9 @@ impl Renderer {
             return (None, offsets);
         }
         let bytes = all.len() * size_of::<Vertex>();
-        let ptr = NonNull::new(all.as_ptr() as *mut c_void).unwrap();
+        let ptr = NonNull::from(all.as_slice()).cast::<c_void>();
+        // SAFETY: `ptr` points to `bytes` initialised bytes, which Metal
+        // copies before returning.
         let buf = unsafe {
             self.device.newBufferWithBytes_length_options(
                 ptr,
@@ -296,30 +304,29 @@ impl Renderer {
         index: usize,
         ops: &[(usize, &Op)],
     ) {
-        let targets = self.targets.as_mut().unwrap();
+        let targets = self.targets.as_mut().expect("encode created the targets");
         let (w, h) = (targets.width as f32, targets.height as f32);
         let pass = MTLRenderPassDescriptor::new();
         let color = &mut targets.color[index];
-        unsafe {
-            let att = pass.colorAttachments().objectAtIndexedSubscript(0);
-            att.setTexture(Some(&color.msaa));
-            att.setResolveTexture(Some(&color.resolved));
-            att.setLoadAction(if color.fresh {
-                MTLLoadAction::Clear
-            } else {
-                MTLLoadAction::Load
-            });
-            att.setStoreAction(MTLStoreAction::StoreAndMultisampleResolve);
-            let depth = pass.depthAttachment();
-            depth.setTexture(Some(&targets.depth));
-            depth.setLoadAction(if targets.depth_fresh {
-                MTLLoadAction::Clear
-            } else {
-                MTLLoadAction::Load
-            });
-            depth.setClearDepth(1.0);
-            depth.setStoreAction(MTLStoreAction::Store);
-        }
+        // SAFETY: attachment 0 always exists (Metal supports at least eight).
+        let att = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
+        att.setTexture(Some(&color.msaa));
+        att.setResolveTexture(Some(&color.resolved));
+        att.setLoadAction(if color.fresh {
+            MTLLoadAction::Clear
+        } else {
+            MTLLoadAction::Load
+        });
+        att.setStoreAction(MTLStoreAction::StoreAndMultisampleResolve);
+        let depth = pass.depthAttachment();
+        depth.setTexture(Some(&targets.depth));
+        depth.setLoadAction(if targets.depth_fresh {
+            MTLLoadAction::Clear
+        } else {
+            MTLLoadAction::Load
+        });
+        depth.setClearDepth(1.0);
+        depth.setStoreAction(MTLStoreAction::Store);
         color.fresh = false;
         targets.depth_fresh = false;
         let Some(enc) = cb.renderCommandEncoderWithDescriptor(&pass) else {
@@ -358,6 +365,8 @@ impl Renderer {
                 Op::Triangles { state, verts } => {
                     let Some(vbuf) = vbuf else { continue };
                     self.bind(&enc, &self.pipelines.tri, state, vbuf, offset, &u);
+                    // SAFETY: `bind` set the vertex buffer at this op's
+                    // offset, where its `verts.len()` vertices start.
                     unsafe {
                         enc.drawPrimitives_vertexStart_vertexCount(
                             MTLPrimitiveType::Triangle,
@@ -374,6 +383,9 @@ impl Renderer {
                     let Some(vbuf) = vbuf else { continue };
                     u.line_width = *width;
                     self.bind(&enc, &self.pipelines.line, state, vbuf, offset, &u);
+                    // SAFETY: each instance is one segment, two of the
+                    // `verts.len()` vertices `bind` set up; `line_vertex`
+                    // makes its six corners from them.
                     unsafe {
                         enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
                             MTLPrimitiveType::Triangle,
@@ -404,10 +416,9 @@ impl Renderer {
         } else {
             &self.pipelines.depth_off
         }));
-        unsafe {
-            enc.setVertexBuffer_offset_atIndex(Some(vbuf), offset, 0);
-            set_uniforms(enc, u);
-        }
+        // SAFETY: `offset` came from `upload_vertices`, so it lies within `vbuf`.
+        unsafe { enc.setVertexBuffer_offset_atIndex(Some(vbuf), offset, 0) };
+        set_uniforms(enc, u);
     }
 
     fn draw_fill(&self, enc: &Encoder, pipeline: &Pipeline, u: &Uniforms) {
@@ -415,10 +426,10 @@ impl Renderer {
         if !std::ptr::eq(pipeline, &*self.pipelines.zclear) {
             enc.setDepthStencilState(Some(&self.pipelines.depth_off));
         }
-        unsafe {
-            set_uniforms(enc, u);
-            enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::Triangle, 0, 3);
-        }
+        set_uniforms(enc, u);
+        // SAFETY: the fill shaders make their full-screen triangle from the
+        // vertex id and read no vertex buffer.
+        unsafe { enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::Triangle, 0, 3) };
     }
 
     /// Blits colour buffer `index` to the layer's next drawable and presents it.
@@ -434,7 +445,11 @@ impl Renderer {
         let Some(blit) = cb.blitCommandEncoder() else {
             return;
         };
-        let src = &self.targets.as_ref().unwrap().color[index].resolved;
+        let targets = self.targets.as_ref().expect("encode created the targets");
+        let src = &targets.color[index].resolved;
+        // SAFETY: the targets were sized from this layer's drawable and share
+        // its pixel format (`configure_layer`); the command buffer retains
+        // both textures until it completes.
         unsafe { blit.copyFromTexture_toTexture(src, &drawable.texture()) };
         blit.endEncoding();
         let drawable: &ProtocolObject<dyn MTLDrawable> = ProtocolObject::from_ref(&*drawable);
@@ -442,8 +457,10 @@ impl Renderer {
     }
 }
 
-unsafe fn set_uniforms(enc: &Encoder, u: &Uniforms) {
+fn set_uniforms(enc: &Encoder, u: &Uniforms) {
     let ptr = NonNull::from(u).cast::<c_void>();
+    // SAFETY: `ptr` points to a live `Uniforms` of exactly the length given,
+    // which Metal copies; its `repr(C)` layout matches the shaders'.
     unsafe {
         enc.setVertexBytes_length_atIndex(ptr, size_of::<Uniforms>(), 1);
         enc.setFragmentBytes_length_atIndex(ptr, size_of::<Uniforms>(), 1);
@@ -488,18 +505,18 @@ fn texture(
     height: usize,
     samples: usize,
 ) -> Retained<Texture> {
+    // SAFETY: a plain descriptor; `encode` rules out zero sizes.
     let desc = unsafe {
         MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(
             format, width, height, false,
         )
     };
-    unsafe {
-        if samples > 1 {
-            desc.setTextureType(MTLTextureType::Type2DMultisample);
-            desc.setSampleCount(samples);
-        }
-        desc.setStorageMode(MTLStorageMode::Private);
+    if samples > 1 {
+        desc.setTextureType(MTLTextureType::Type2DMultisample);
+        // SAFETY: 4x multisampling is supported by every Apple GPU.
+        unsafe { desc.setSampleCount(samples) };
     }
+    desc.setStorageMode(MTLStorageMode::Private);
     desc.setUsage(MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead);
     device.newTextureWithDescriptor(&desc).expect("texture")
 }
@@ -518,6 +535,7 @@ impl Pipelines {
             desc.setFragmentFunction(Some(&func(fragment)));
             desc.setRasterSampleCount(SAMPLES);
             desc.setDepthAttachmentPixelFormat(DEPTH_FORMAT);
+            // SAFETY: attachment 0 always exists (Metal supports at least eight).
             let att = unsafe { desc.colorAttachments().objectAtIndexedSubscript(0) };
             att.setPixelFormat(COLOR_FORMAT);
             if !color_writes {

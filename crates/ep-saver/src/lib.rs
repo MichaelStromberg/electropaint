@@ -46,6 +46,8 @@ define_class!(
         fn init_with_frame(this: Allocated<Self>, frame: NSRect, is_preview: Bool) -> Option<Retained<Self>> {
             let this = this.set_ivars(RefCell::new(None));
             let view: Option<Retained<Self>> =
+                // SAFETY: ScreenSaverView's designated initialiser, once, on a fresh
+                // allocation.
                 unsafe { msg_send![super(this), initWithFrame: frame, isPreview: is_preview] };
             if let Some(view) = &view {
                 view.setup();
@@ -68,6 +70,7 @@ define_class!(
         /// notification is the established workaround.
         #[unsafe(method(screensaverWillStop:))]
         fn screensaver_will_stop(&self, _note: &NSNotification) {
+            // SAFETY: a property read on this (ScreenSaverView) instance.
             if !unsafe { self.isPreview() } {
                 std::process::exit(0);
             }
@@ -88,7 +91,9 @@ impl SaverView {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
         let seed = now + INSTANCES.fetch_add(1, Ordering::Relaxed);
+        // SAFETY: `step:` is defined on this class and takes the `CADisplayLink`.
         let link = unsafe { self.displayLinkWithTarget_selector(self as &AnyObject, sel!(step:)) };
+        // SAFETY: the main run loop, from the main thread (`MainThreadOnly`).
         unsafe { link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSDefaultRunLoopMode) };
         let show = Show::new(Options::new(seed).saver());
         *self.ivars().borrow_mut() = Some(SaverState {
@@ -98,6 +103,8 @@ impl SaverView {
             _link: link,
         });
 
+        // SAFETY: `screensaverWillStop:` is defined on this class and takes the
+        // notification.
         unsafe {
             NSDistributedNotificationCenter::defaultCenter().addObserver_selector_name_object(
                 self as &AnyObject,

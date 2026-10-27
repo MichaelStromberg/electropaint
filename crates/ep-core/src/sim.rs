@@ -1,7 +1,7 @@
 //! The ep main loop: one [`Sim::tick`] is one pass of the original's
 //! `main` loop (animation.md §4.1, rendering.md §3).
 //!
-//! The simulation owns an emulated IrisGL context ([`Gl`]); everything
+//! The simulation owns an emulated IrisGL context (`Gl`); everything
 //! the original draws goes through it, which produces both the renderer's
 //! [`Frame`] and (optionally) a call log comparable with IRIX traces.
 

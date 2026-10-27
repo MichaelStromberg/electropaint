@@ -73,9 +73,10 @@ impl SeqState {
             .and_then(|c| (c + 1 < self.commands.len()).then_some(c + 1));
     }
 
-    fn due(&self, now: f64) -> bool {
-        let Some(c) = self.cur else { return false };
-        f64::from(self.commands[c].frame + self.start) < now
+    /// The command at the cursor, if its time has come by `now`.
+    fn due_command(&self, now: f64) -> Option<Command> {
+        let cmd = self.commands[self.cur?];
+        (f64::from(cmd.frame + self.start) < now).then_some(cmd)
     }
 }
 
@@ -106,14 +107,16 @@ impl Sim {
                 busy = true;
             }
             let now = f64::from(self.current_frame) + 0.5;
-            if f64::from(s.start) < now && s.active && s.due(now) {
-                loop {
-                    let c = self.seqs[i].commands[self.seqs[i].cur.unwrap()];
+            if f64::from(s.start) < now && s.active {
+                let mut due = s.due_command(now);
+                while let Some(c) = due {
                     self.process_command(i, c);
                     let s = &self.seqs[i];
-                    if !s.active || !s.due(f64::from(self.current_frame) + 0.5) {
-                        break;
-                    }
+                    due = if s.active {
+                        s.due_command(f64::from(self.current_frame) + 0.5)
+                    } else {
+                        None
+                    };
                 }
             }
             // A killed sequence is unlinked; the next one now sits at `i`.

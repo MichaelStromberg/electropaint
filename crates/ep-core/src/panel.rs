@@ -610,8 +610,7 @@ impl Builder {
     fn add(&mut self, id: u16, kind: Kind, panel: Option<Panel>) -> &mut Actuator {
         let slot = &mut self.c.acts[usize::from(id)];
         assert!(slot.is_none(), "id {id} built twice");
-        *slot = Some(Actuator::new(id, kind, panel));
-        slot.as_mut().unwrap()
+        slot.insert(Actuator::new(id, kind, panel))
     }
 
     fn wide(&mut self, id: u16, label: &'static str, y: f32, kind: Kind) -> &mut Actuator {

@@ -57,20 +57,21 @@ impl Show {
         }
         let mut due = Vec::new();
         loop {
-            if self.pending.is_none() {
-                if self.sim.exited() {
-                    break;
+            let (frame, retraces) = match self.pending.take() {
+                Some(pending) => pending,
+                None if self.sim.exited() => break,
+                None => {
+                    let frame = self.sim.tick();
+                    let swaps = frame.ops.iter().filter(|op| matches!(op, Op::Swap)).count();
+                    // A tick with no swap (rare) still takes a retrace, so time moves.
+                    (frame, swaps.max(1) as u32)
                 }
-                let frame = self.sim.tick();
-                let swaps = frame.ops.iter().filter(|op| matches!(op, Op::Swap)).count();
-                // A tick with no swap (rare) still takes a retrace, so time moves.
-                self.pending = Some((frame, swaps.max(1) as u32));
-            }
-            let retraces = self.pending.as_ref().map_or(1, |p| p.1);
+            };
             if self.shown + f64::from(retraces) > now + 1e-6 {
+                self.pending = Some((frame, retraces));
                 break;
             }
-            due.push(self.pending.take().unwrap().0);
+            due.push(frame);
             self.shown += f64::from(retraces);
         }
         if !due.is_empty() {

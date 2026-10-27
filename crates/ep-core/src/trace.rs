@@ -9,13 +9,14 @@
 //! value (and how many floats), output parameters and return type. Frames
 //! end at `swapbuffers`.
 //!
-//! Only the drawing stream is compared ([`is_draw_call`]): window, event
+//! Only the drawing stream is compared (`is_draw_call`): window, event
 //! and panel calls are skipped, as is the panel library's own pattern.
 //! Window-system REDRAW events are inputs, so the comparison replays them
 //! where the trace shows the main loop reading one.
 
 use std::collections::{HashMap, VecDeque};
-use std::fmt::Write as _;
+use std::fmt::{self, Write as _};
+use std::path::{Path, PathBuf};
 
 use crate::gl::{Arg, IrisCall};
 use crate::sim::{Options, Sim, SwapCause};
@@ -262,12 +263,6 @@ pub(crate) struct OpsTable {
 }
 
 impl OpsTable {
-    pub(crate) fn load(path: impl AsRef<std::path::Path>) -> Result<OpsTable, String> {
-        let text = std::fs::read_to_string(path.as_ref())
-            .map_err(|e| format!("{}: {e}", path.as_ref().display()))?;
-        OpsTable::parse(&text)
-    }
-
     pub(crate) fn parse(json: &str) -> Result<OpsTable, String> {
         let j = JsonParser::parse(json)?;
         let Some(Json::Obj(ops)) = j.get("ops") else {
@@ -580,15 +575,54 @@ pub(crate) fn frames(ops: &OpsTable, data: &[u8]) -> Result<Vec<TraceFrame>, Str
     Ok(out)
 }
 
+/// Why [`load`] failed.
+#[derive(Debug)]
+pub enum TraceError {
+    /// A file could not be read.
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    /// The opcode table is malformed.
+    Table(String),
+    /// The trace is not a well-formed EPT1 recording.
+    Trace(String),
+}
+
+impl fmt::Display for TraceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TraceError::Io { path, source } => write!(f, "{}: {source}", path.display()),
+            TraceError::Table(msg) | TraceError::Trace(msg) => f.write_str(msg),
+        }
+    }
+}
+
+impl std::error::Error for TraceError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            TraceError::Io { source, .. } => Some(source),
+            TraceError::Table(_) | TraceError::Trace(_) => None,
+        }
+    }
+}
+
 /// Load an opcode table and a trace file.
 pub fn load(
-    ops_json: impl AsRef<std::path::Path>,
-    trace: impl AsRef<std::path::Path>,
-) -> Result<Vec<TraceFrame>, String> {
-    let ops = OpsTable::load(ops_json)?;
-    let data =
-        std::fs::read(trace.as_ref()).map_err(|e| format!("{}: {e}", trace.as_ref().display()))?;
-    frames(&ops, &data)
+    ops_json: impl AsRef<Path>,
+    trace: impl AsRef<Path>,
+) -> Result<Vec<TraceFrame>, TraceError> {
+    let (ops_json, trace) = (ops_json.as_ref(), trace.as_ref());
+    let text = std::fs::read_to_string(ops_json).map_err(|source| TraceError::Io {
+        path: ops_json.into(),
+        source,
+    })?;
+    let ops = OpsTable::parse(&text).map_err(TraceError::Table)?;
+    let data = std::fs::read(trace).map_err(|source| TraceError::Io {
+        path: trace.into(),
+        source,
+    })?;
+    frames(&ops, &data).map_err(TraceError::Trace)
 }
 
 // ---------------------------------------------------------------- comparison

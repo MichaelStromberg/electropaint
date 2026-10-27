@@ -128,6 +128,7 @@ impl PanelController {
             chan_rows: RefCell::new(None),
             timer: RefCell::new(None),
         });
+        // SAFETY: NSObject's initialiser, once, on a fresh allocation.
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
 
         let tabs = NSTabView::new(mtm);
@@ -150,6 +151,7 @@ impl PanelController {
             NSBackingStoreType::Buffered,
             false,
         );
+        // SAFETY: `Retained` owns the panel, so AppKit must not release it too.
         unsafe { panel.setReleasedWhenClosed(false) };
         panel.setTitle(&ns("electropaint controls"));
         panel.setContentView(Some(&tabs));
@@ -160,6 +162,7 @@ impl PanelController {
         panel.center();
         *this.ivars().window.borrow_mut() = Some(panel);
 
+        // SAFETY: `refresh:` is defined on this class and takes the timer.
         let timer = unsafe {
             NSTimer::scheduledTimerWithTimeInterval_target_selector_userInfo_repeats(
                 1.0 / REFRESH_HZ,
@@ -190,6 +193,7 @@ impl PanelController {
                 .bitmapImageRepForCachingDisplayInRect(rect)
                 .ok_or("no bitmap")?;
             tabs.cacheDisplayInRect_toBitmapImageRep(rect, &rep);
+            // SAFETY: an empty properties dictionary is valid for every file type.
             let png = unsafe {
                 rep.representationUsingType_properties(
                     objc2_app_kit::NSBitmapImageFileType::PNG,
@@ -408,6 +412,9 @@ impl PanelController {
         let mut controls = self.ivars().controls.borrow_mut();
         if let Some(control) = view.downcast_ref::<NSControl>() {
             control.setTag(controls.len() as isize);
+            // SAFETY: `changed:` is defined on this class and takes the
+            // control; the target is weak, and this controller outlives the
+            // panel's controls.
             unsafe {
                 control.setTarget(Some(self));
                 control.setAction(Some(sel!(changed:)));
@@ -453,6 +460,7 @@ impl PanelController {
     }
 
     fn checkbox(&self, mtm: MainThreadMarker, title: &str, bind: Bind) -> Retained<NSView> {
+        // SAFETY: no target or action; `register` sets them.
         let b = unsafe { NSButton::checkboxWithTitle_target_action(&ns(title), None, None, mtm) };
         let view: Retained<NSView> = Retained::into_super(Retained::into_super(b));
         self.register(&view, bind);
@@ -460,6 +468,7 @@ impl PanelController {
     }
 
     fn button(&self, mtm: MainThreadMarker, title: &str, bind: Bind) -> Retained<NSView> {
+        // SAFETY: no target or action; `register` sets them.
         let b = unsafe { NSButton::buttonWithTitle_target_action(&ns(title), None, None, mtm) };
         if let Bind::Press(id) = bind {
             // Momentary buttons that light up (the channel "active" buttons)

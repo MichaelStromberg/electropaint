@@ -226,6 +226,7 @@ impl ShowView {
         quit_on_input: bool,
     ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(RefCell::new(None));
+        // SAFETY: NSView's designated initialiser, once, on a fresh allocation.
         let view: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
 
         let device = MTLCreateSystemDefaultDevice().expect("no Metal device");
@@ -236,7 +237,9 @@ impl ShowView {
         view.setLayer(Some(&layer));
         view.setWantsLayer(true);
 
+        // SAFETY: `step:` is defined on this class and takes the `CADisplayLink`.
         let link = unsafe { view.displayLinkWithTarget_selector(&view as &AnyObject, sel!(step:)) };
+        // SAFETY: the main run loop, from the main thread (`MainThreadOnly`).
         unsafe { link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSDefaultRunLoopMode) };
 
         *view.ivars().borrow_mut() = Some(ViewState {
@@ -350,6 +353,8 @@ fn open_window(
     fullscreen: bool,
     quit_on_input: bool,
 ) -> (Retained<NSWindow>, Retained<ShowView>) {
+    // SAFETY: NSWindow's designated initialiser, with its argument types, on a
+    // fresh allocation.
     let window: Retained<ShowWindow> = unsafe {
         msg_send![
             ShowWindow::alloc(mtm),
@@ -361,6 +366,7 @@ fn open_window(
         ]
     };
     let window: Retained<NSWindow> = Retained::into_super(window);
+    // SAFETY: `Retained` owns the window, so AppKit must not release it too.
     unsafe { window.setReleasedWhenClosed(false) };
     let content = NSRect::new(NSPoint::new(0.0, 0.0), rect.size);
     let view = ShowView::new(mtm, content, show, quit_on_input);
