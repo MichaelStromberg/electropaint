@@ -21,7 +21,7 @@ use objc2_foundation::NSString;
 
 use args::{Options, parse_args};
 use snapshot::{write_panel_snapshot, write_snapshot};
-use view::{SHOW_LEVEL, open_window};
+use view::{NORMAL_LEVEL, SHOW_LEVEL, open_window};
 
 fn main() {
     let opts = parse_args();
@@ -45,7 +45,11 @@ fn main() {
     // Kept alive while the app runs, which is until it quits the process.
     let style = Rc::new(Cell::new(opts.style));
     let (_windows, panel_show) = open_show_windows(mtm, &opts, &style, interactive);
-    let level = if opts.windowed { 0 } else { SHOW_LEVEL };
+    let level = if opts.windowed {
+        NORMAL_LEVEL
+    } else {
+        SHOW_LEVEL
+    };
     // With no display there is no show, and so no panel either.
     let _panel = panel_show
         .filter(|_| interactive)
@@ -99,7 +103,7 @@ fn open_show_windows(
     let mut seed = opts.seed_base();
     let mut new_show = || {
         let show = Show::new(opts.show_options(seed));
-        seed += 1;
+        seed = seed.wrapping_add(1);
         Rc::new(RefCell::new(show))
     };
     let mut windows = Vec::new();
@@ -128,7 +132,7 @@ fn open_show_windows(
             panel_show.get_or_insert(main);
             windows.push(window);
         }
-        if !opts.controls {
+        if !interactive {
             NSCursor::hide();
         }
     }

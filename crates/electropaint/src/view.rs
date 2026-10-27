@@ -273,5 +273,8 @@ pub(crate) fn open_window(
     (window, main)
 }
 
+/// Window level of the `--windowed` window: an ordinary one.
+pub(crate) const NORMAL_LEVEL: isize = 0;
+
 /// Window level of fullscreen shows: above the menu bar and Dock.
 pub(crate) const SHOW_LEVEL: isize = 1000;

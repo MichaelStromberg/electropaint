@@ -53,6 +53,9 @@ type Encoder = ProtocolObject<dyn MTLRenderCommandEncoder>;
 type Buffer = ProtocolObject<dyn MTLBuffer>;
 type CommandBuffer = ProtocolObject<dyn MTLCommandBuffer>;
 
+// The shaders' layout: a mismatch would draw garbage, not fail.
+const _: () = assert!(size_of::<Uniforms>() == 176);
+
 /// Per-draw constants; layout matches `Uniforms` in shaders.metal.
 #[repr(C)]
 #[derive(Clone, Copy)]

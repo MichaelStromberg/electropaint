@@ -48,7 +48,8 @@ const SNAPSHOT_FORMAT: MTLPixelFormat = MTLPixelFormat::BGRA8Unorm;
 
 /// ep's vertical field of view, and how far its camera stands from the
 /// strand (`perspective(300, …)`, `polarview(10, …)`).
-const HALF_FOVY: f32 = 15.0 * std::f32::consts::PI / 180.0;
+const FOVY_TENTHS: i16 = 300;
+const HALF_FOVY: f32 = (FOVY_TENTHS as f32 / 20.0).to_radians();
 const DISTANCE: f32 = 10.0;
 
 /// How much of the trail a step keeps: smear, and smear with fade.
@@ -677,7 +678,7 @@ fn perspective(aspect: f32) -> [[f32; 4]; 4] {
     // ep's camera is 10 units from the strand, which can reach far beyond
     // that either way.
     let ep = Projection {
-        fovy_tenths: 300,
+        fovy_tenths: FOVY_TENTHS,
         aspect,
         near: 0.05,
         far: 1e4,

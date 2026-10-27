@@ -33,7 +33,7 @@ struct Instance {
 
 struct RibbonVertex {
     float4 pos;     // eye space
-    float4 normal;
+    float4 normal;  // w = the hue the film thickness follows
     float4 colour;  // linear
 };
 
@@ -55,7 +55,7 @@ struct Shaded {
 struct Post {
     float4 background;
     float2 texel;      // 1 / size of the texture read
-    float decay;       // trail kept per step
+    float decay;       // how much of the trail is left since the last picture
     float threshold;   // bloom
     float headroom;    // brightest value the display shows (1 = SDR white)
     float tan_half_fov;

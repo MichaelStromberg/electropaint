@@ -11,6 +11,7 @@ use objc2::MainThreadMarker;
 
 use crate::args::{Options, Snapshot};
 use crate::panel;
+use crate::view::NORMAL_LEVEL;
 
 /// Runs the shows offscreen for `snap.frames` retraces and saves what is
 /// displayed, the strands side by side.
@@ -18,10 +19,14 @@ pub(crate) fn write_snapshot(
     snap: &Snapshot,
     opts: &Options,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let count = opts.strands().count(snap.width as f64, snap.height as f64);
+    // No more strands than pixels across.
+    let count = opts
+        .strands()
+        .count(snap.width as f64, snap.height as f64)
+        .min(snap.width);
     let base = opts.seed_base();
     let frames = |index: usize| {
-        let mut show = opts.show_options(base + index as i64);
+        let mut show = opts.show_options(base.wrapping_add(index as i64));
         // Only remastered draws from scenes; a snapshot can't switch style.
         show.scene = opts.style == Style::Remastered;
         snapshot_frames(snap, show)
@@ -97,7 +102,7 @@ pub(crate) fn write_panel_snapshot(mtm: MainThreadMarker, path: &str, opts: &Opt
         let _ = show.borrow_mut().picture(f64::from(i) / 60.0);
     }
     let style = Rc::new(Cell::new(opts.style));
-    let panel = panel::PanelController::new(mtm, show, style, false, 0);
+    let panel = panel::PanelController::new(mtm, show, style, false, NORMAL_LEVEL);
     if let Err(e) = panel.snapshot(path) {
         eprintln!("electropaint: panel snapshot failed: {e}");
         std::process::exit(1);

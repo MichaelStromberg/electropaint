@@ -69,7 +69,8 @@ vertex VOut line_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     return o;
 }
 
-// Full-viewport fill for clear(), the stippled fade and zclear().
+// Full-viewport fill for clear(), the stippled fade and zclear(), at the
+// far depth.
 vertex VOut fill_vertex(uint vid [[vertex_id]], constant Uniforms &u [[buffer(1)]]) {
     float2 p = float2((vid << 1) & 2, vid & 2);
     VOut o;
@@ -97,12 +98,6 @@ fragment float4 fill_fragment(VOut in [[stage_in]], constant Uniforms &u [[buffe
     return u.fill_color;
 }
 
-struct DepthOut {
-    float depth [[depth(any)]];
-};
-
-fragment DepthOut zclear_fragment(VOut in [[stage_in]]) {
-    DepthOut o;
-    o.depth = 1.0;
-    return o;
-}
+// zclear(): the fill's depth is already the far value (z = w = 1), which
+// the depth state writes; colour writes are masked off.
+fragment void zclear_fragment() {}

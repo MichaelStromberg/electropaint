@@ -84,7 +84,8 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Options>, Stri
         strands: None,
         style: Style::Classic,
     };
-    let (mut frames, mut size) = (600, (1280, 1024));
+    // The snapshot's file, steps and size, in any order.
+    let (mut snapshot, mut frames, mut size) = (None, None, None);
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -101,22 +102,17 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Options>, Stri
                 opts.script = Some(ep_core::Script::parse(&text));
             }
             "--seed" => opts.seed = Some(number(args.next(), "--seed")?),
-            "--snapshot" => {
-                let path = args.next().ok_or("--snapshot needs a file")?;
-                opts.snapshot = Some(Snapshot {
-                    path,
-                    frames: 0,
-                    width: 0,
-                    height: 0,
-                });
-            }
-            "--frames" => frames = number(args.next(), "--frames")?,
+            "--snapshot" => snapshot = Some(args.next().ok_or("--snapshot needs a file")?),
+            "--frames" => frames = Some(number(args.next(), "--frames")?),
             "--strands" => {
                 let v = args.next().unwrap_or_default();
-                opts.strands = Some(match v.parse() {
-                    _ if v == "auto" => Strands::Auto,
-                    Ok(n @ 1..=MAX_STRANDS) => Strands::Count(n),
-                    _ => return Err(format!("--strands takes auto or 1 to {MAX_STRANDS}")),
+                opts.strands = Some(if v == "auto" {
+                    Strands::Auto
+                } else {
+                    match v.parse() {
+                        Ok(n @ 1..=MAX_STRANDS) => Strands::Count(n),
+                        _ => return Err(format!("--strands takes auto or 1 to {MAX_STRANDS}")),
+                    }
                 });
             }
             "--style" => {
@@ -128,30 +124,51 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Options>, Stri
             }
             "--size" => {
                 let v = args.next().unwrap_or_default();
-                size = v
-                    .split_once('x')
-                    .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
-                    .filter(|&(w, h)| w > 0 && h > 0)
-                    .ok_or("--size takes WIDTHxHEIGHT, both above 0")?;
+                size = Some(
+                    v.split_once('x')
+                        .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
+                        .filter(|&(w, h)| w > 0 && h > 0)
+                        .ok_or("--size takes WIDTHxHEIGHT, both above 0")?,
+                );
             }
             "-h" | "--help" => return Ok(None),
             other => return Err(format!("unknown option {other}")),
         }
     }
-    if let Some(snap) = &mut opts.snapshot {
-        (snap.frames, snap.width, snap.height) = (frames, size.0, size.1);
+    if opts.windowed && opts.all_displays {
+        return Err("--windowed and --all-displays don't go together".into());
+    }
+    match snapshot {
+        Some(path) => {
+            if opts.windowed || opts.all_displays || opts.controls || opts.panel_snapshot.is_some()
+            {
+                return Err("--snapshot draws offscreen, with no windows or control panel".into());
+            }
+            let (width, height) = size.unwrap_or((1280, 1024));
+            opts.snapshot = Some(Snapshot {
+                path,
+                frames: frames.unwrap_or(600),
+                width,
+                height,
+            });
+        }
+        None if frames.is_some() || size.is_some() => {
+            return Err("--frames and --size go with --snapshot".into());
+        }
+        None => {}
     }
     Ok(Some(opts))
 }
 
-const USAGE: &str = "usage: electropaint [--windowed | --all-displays] [--controls] [--style classic|remastered] [--quad] [--script FILE] [--seed N] [--strands N|auto]
-       electropaint --snapshot FILE.png [--style classic|remastered] [--quad] [--script FILE] [--seed N] [--strands N|auto] [--frames N] [--size WxH]
+const USAGE: &str = "usage: electropaint [--windowed | --all-displays] [-c | --controls] [--style classic|remastered] [-q | --quad] [--script FILE] [--seed N] [--strands N|auto]
+       electropaint --snapshot FILE.png [--style classic|remastered] [-q | --quad] [--script FILE] [--seed N] [--strands N|auto] [--frames N] [--size WxH]
+       electropaint -h | --help
 
 --style remastered draws ep's show as iridescent chrome in high dynamic
 range, as many strands as fit the screen; classic (the default) as ep drew it.
 --script runs an ep script (as `ep -a`) instead of the built-in show.
---strands runs several shows side by side, each with its own seed; auto
-fits as many as the screen's width takes (three on 32:9).
+--strands runs several shows side by side (up to 16), each with its own
+seed; auto fits as many as the screen's width takes (three on 32:9).
 --snapshot saves the picture after about --frames 60 Hz retraces (default 600)
 at --size (default 1280x1024).
 
@@ -228,6 +245,11 @@ mod tests {
             "--panel-snapshot",
             "--script",
             "--fast",
+            "--windowed --all-displays",
+            "--frames 5",
+            "--size 64x32",
+            "--snapshot a.png --windowed",
+            "--snapshot a.png --controls",
             "--strands",
             "--strands 0",
             "--strands 17",

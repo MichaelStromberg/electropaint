@@ -74,24 +74,42 @@ def fmt(v):
     return str(v)
 
 
+def frame_range(text):
+    """`A:B` -> (A, B); A defaults to 0 and B to the end."""
+    x, sep, y = text.partition(":")
+    try:
+        if not sep:
+            raise ValueError
+        return int(x or 0), int(y or 1 << 30)
+    except ValueError:
+        raise argparse.ArgumentTypeError("takes A:B (either may be left out)") from None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("ops")
     ap.add_argument("trace")
-    ap.add_argument("--frames", default=None, help="A:B frame range (half-open)")
+    ap.add_argument("--frames", type=frame_range, default=(0, 1 << 30),
+                    help="A:B frame range (half-open; either end may be left out)")
     ap.add_argument("--summary", action="store_true", help="call counts per name")
     a = ap.parse_args()
     with open(a.ops) as f:
-        ops = json.load(f)["ops"]
+        table = json.load(f)
+    if table.get("magic") != "EPT1":
+        sys.exit(f"{a.ops}: not an EPT1 opcode table")
+    ops = table["ops"]
     with open(a.trace, "rb") as f:
         data = f.read()
-    if data[:4] != b"EPT1":
-        sys.exit(f"{a.trace}: not an EPT1 trace")
-    lo, hi = 0, 1 << 30
-    if a.frames:
-        x, y = a.frames.split(":")
-        lo, hi = int(x or 0), int(y or 1 << 30)
-    if a.summary:
+    lo, hi = a.frames
+    try:
+        dump(ops, data, lo, hi, a.summary)
+    except ValueError as e:
+        sys.exit(f"{a.trace}: {e}")
+
+
+def dump(ops, data, lo, hi, summary):
+    """Prints the calls of frames lo..hi, or how often each was called."""
+    if summary:
         c = Counter()
         frames = set()
         for frame, name, _, _ in decode(ops, data):

@@ -1,6 +1,6 @@
 [package]
 name = "ep-metal"
-description = "Metal renderer for electropaint frames: an IrisGL-style double-buffered target"
+description = "Metal renderers for electropaint: classic (an IrisGL-style double-buffered target) and remastered"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

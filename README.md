@@ -56,7 +56,9 @@ ep, except where noted below.
 - Ribbons are a swept metal band.
 - Smear leaves trails that fade over a second or two, and fade makes
   them fade faster; smooth draws as plain smear. Lighting and the z-buffer
-  are always on.
+  are always on, so lit ribbons stay visible (in ep they took the
+  background colour), and the tiles are always opaque: channel Opacity,
+  Ambient and Shininess have no effect.
 - It draws in floating point with 4x multisampling and bloom. On an XDR
   or HDR display the highlights go brighter than SDR white.
 - Several strands share one space and one camera. Keys, clicks and the
@@ -181,11 +183,12 @@ any two savers.
 | path | |
 |---|---|
 | `crates/ep-core` | the simulation: script, sequencer, actuators, strand drawing, an IrisGL emulation, trace comparison |
-| `crates/ep-metal` | the Metal renderer and the show driver (pacing, in-between pictures) |
+| `crates/ep-metal` | the classic and remastered Metal renderers, the view surface that runs strands in either, and the show driver (pacing, in-between pictures) |
 | `crates/electropaint` | the app and its control panel |
 | `crates/ep-saver` | the screen saver |
 | `docs/spec` | the reverse-engineered behaviour, in our own words |
 | `tools/irix` | the IRIX-side call tracer generator and helpers |
+| `scripts` | building the screen savers |
 
 SGI's binaries, decompiled code, the original script text and the IRIX
 recordings stay in the git-ignored `re/` directory. Tests that compare against
@@ -195,9 +198,10 @@ recordings skip themselves when `re/` is absent.
 
     cargo test --release --workspace
 
-The trace tests compare the simulation with every IRIX recording in `re/`
-and skip the ones that are missing. Set `EP_REQUIRE_TRACES=1` to make a
-missing recording a failure instead, so a run that skipped them can't pass.
+The trace tests compare the simulation with each of the 18 IRIX recordings
+in `re/` and skip the ones that are missing. Set `EP_REQUIRE_TRACES` (to
+anything) to make a missing recording a failure instead, so a run that
+skipped them can't pass.
 
 ## History
 
