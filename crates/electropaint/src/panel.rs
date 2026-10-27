@@ -262,7 +262,7 @@ impl PanelController {
                 self.button(mtm, "exit", Bind::Press(ids::EXIT)),
             ],
         );
-        let toggles: Retained<NSView> = Retained::into_super(grid(mtm, toggle_rows));
+        let toggles: Retained<NSView> = Retained::into_super(narrow(grid(mtm, toggle_rows)));
 
         let mut rows = vec![slider_header(mtm)];
         for (id, label) in
@@ -270,7 +270,7 @@ impl PanelController {
         {
             rows.push(self.ep_slider_row(mtm, label, id, 200.0));
         }
-        let sliders: Retained<NSView> = Retained::into_super(grid(mtm, rows));
+        let sliders: Retained<NSView> = Retained::into_super(narrow(grid(mtm, rows)));
 
         let puck = hstack(
             mtm,
@@ -740,6 +740,15 @@ fn grid(mtm: MainThreadMarker, rows: Vec<Vec<Retained<NSView>>>) -> Retained<NSG
     g.setColumnSpacing(8.0);
     // Keep rows at their natural height when the tab is taller.
     g.setContentHuggingPriority_forOrientation(999.0, NSLayoutConstraintOrientation::Vertical);
+    g
+}
+
+/// Keeps a grid's columns at their natural width in a wider tab. Otherwise
+/// the grid's default hugging ties with the stack view's pull towards its
+/// edges (both at low priority), and Auto Layout settles the tie
+/// differently from run to run, spreading the columns out.
+fn narrow(g: Retained<NSGridView>) -> Retained<NSGridView> {
+    g.setContentHuggingPriority_forOrientation(999.0, NSLayoutConstraintOrientation::Horizontal);
     g
 }
 
