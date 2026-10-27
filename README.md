@@ -45,6 +45,8 @@ keeps ep's show and draws it as a modern renderer would. The simulation is
 the same, so every tile goes where ep put it, and the controls work as in
 ep, except where noted below.
 
+![The remastered style: a spiral strand of rounded chrome tiles with glowing blue outlines, green reflections at the top and warm highlights below](docs/images/remastered.png)
+
 - Each tile is a slab of polished metal with rounded edges, coloured by
   its slot's colour under a thin iridescent film whose thickness follows
   the hue. It reflects a studio of soft lights; ep's own two lights add
