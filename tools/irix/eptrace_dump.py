@@ -71,8 +71,10 @@ def main():
     ap.add_argument("--frames", default=None, help="A:B frame range (half-open)")
     ap.add_argument("--summary", action="store_true", help="call counts per name")
     a = ap.parse_args()
-    ops = json.load(open(a.ops))["ops"]
-    data = open(a.trace, "rb").read()
+    with open(a.ops) as f:
+        ops = json.load(f)["ops"]
+    with open(a.trace, "rb") as f:
+        data = f.read()
     lo, hi = 0, 1 << 30
     if a.frames:
         x, y = a.frames.split(":")

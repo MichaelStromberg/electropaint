@@ -13,12 +13,16 @@ Pointer args with known extents are logged by value (see EXTENTS); other
 pointers are logged as their address. Return values are appended.
 Nested calls (libgl calling its own exported entry points) are not logged.
 """
+# The C templates use printf-style formatting; as f-strings every C brace
+# would have to be doubled.
+# ruff: noqa: UP031
 import json
 import re
 import sys
 
 protos_path, imports_path, out_c, out_json = sys.argv[1:5]
-imports = set(open(imports_path).read().split())
+with open(imports_path) as f:
+    imports = set(f.read().split())
 
 # libm/libc functions we deliberately do NOT wrap (pure math, noise).
 SKIP = {"atan2", "floor", "fmod", "hypot", "expm1"}
@@ -46,7 +50,9 @@ CT = {  # normalized type -> (C type, size, logger)
 }
 
 protos = {}
-for line in open(protos_path):
+with open(protos_path) as f:
+    proto_lines = f.readlines()
+for line in proto_lines:
     line = line.strip()
     if not line or line.startswith("#"):
         continue
@@ -220,6 +226,8 @@ for op, name in enumerate(names, start=1):
     body.append("}")
     out.append("\n".join(body) + "\n")
 
-open(out_c, "w").write("\n".join(out))
-json.dump({"magic": "EPT1", "ops": ops}, open(out_json, "w"), indent=1)
+with open(out_c, "w") as f:
+    f.write("\n".join(out))
+with open(out_json, "w") as f:
+    json.dump({"magic": "EPT1", "ops": ops}, f, indent=1)
 print("wrapped %d functions -> %s" % (len(names), out_c))
