@@ -181,8 +181,9 @@ pub(crate) struct PanelIvars {
     slot: RefCell<Option<Retained<NSView>>>,
     pages: RefCell<Vec<Retained<NSView>>>,
     picker: RefCell<Option<Retained<NSSegmentedControl>>>,
-    /// `--controls`: keep the panel up regardless of ep's full-screen state.
-    pinned: bool,
+    /// `--controls`: keep the panel up regardless of ep's full-screen state,
+    /// until it is closed.
+    pinned: Cell<bool>,
     chan_rows: RefCell<Option<ChanRows>>,
     timer: RefCell<Option<Retained<NSTimer>>>,
     /// Refreshes so far, for pacing the readouts.
@@ -212,9 +213,10 @@ define_class!(
 
     unsafe impl NSWindowDelegate for PanelController {
         /// Closing the panel is ep's "full screen" again, which hides the
-        /// panels; a pinned panel just unpins.
+        /// panels; a pinned panel unpins, so it stays closed.
         #[unsafe(method(windowShouldClose:))]
         fn window_should_close(&self, _sender: &AnyObject) -> bool {
+            self.ivars().pinned.set(false);
             let mut show = self.ivars().show.borrow_mut();
             if show.sim().panels_visible() {
                 show.sim_mut().press(ids::FULLSCREEN);
@@ -243,7 +245,7 @@ impl PanelController {
             slot: RefCell::new(None),
             pages: RefCell::new(Vec::new()),
             picker: RefCell::new(None),
-            pinned,
+            pinned: Cell::new(pinned),
             chan_rows: RefCell::new(None),
             timer: RefCell::new(None),
             refreshes: Cell::new(0),
@@ -882,7 +884,7 @@ impl PanelController {
         let Some(window) = window_ref.as_ref() else {
             return;
         };
-        let want_visible = self.ivars().pinned || sim.panels_visible();
+        let want_visible = self.ivars().pinned.get() || sim.panels_visible();
         if want_visible != window.isVisible() {
             if want_visible {
                 window.orderFront(None);
