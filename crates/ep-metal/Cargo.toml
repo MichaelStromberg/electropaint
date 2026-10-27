@@ -16,7 +16,7 @@ publish = true
 targets = ["aarch64-apple-darwin"]
 
 [dependencies]
-electropaint-core = { path = "../ep-core", version = "0.1.0" }
+electropaint-core = { path = "../ep-core", version = "0.1.1" }
 objc2 = "0.6.5"
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std"] }
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["CGColorSpace", "std"] }

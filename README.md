@@ -2,13 +2,13 @@
 
 [![crates.io](https://img.shields.io/crates/v/electropaint.svg)](https://crates.io/crates/electropaint)
 [![release](https://img.shields.io/github/v/release/MichaelStromberg/electropaint)](https://github.com/MichaelStromberg/electropaint/releases/latest)
-[![licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+[![licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](https://github.com/MichaelStromberg/electropaint/blob/main/LICENSE)
 
 A port of SGI's electropaint (`/usr/demos/bin/ep`, IRIX 5.3) to macOS, written
 in Rust with Metal. It runs the original's built-in "mello" show, along with
 every drawing mode and control the original has.
 
-![electropaint's strand of tiles in a window, fading from green at the top to orange at the bottom](docs/images/show.png)
+![electropaint's strand of tiles in a window, fading from green at the top to orange at the bottom](https://raw.githubusercontent.com/MichaelStromberg/electropaint/main/docs/images/show.png)
 
 The simulation is a re-implementation from the reverse-engineered binary.
 Its IrisGL call stream matches recordings of the real program running on
@@ -69,7 +69,7 @@ keeps ep's show and draws it as a modern renderer would. The simulation is
 the same, so every tile goes where ep put it, and the controls work as in
 ep, except where noted below.
 
-![The remastered style: a spiral strand of rounded chrome tiles with glowing blue outlines, green reflections at the top and warm highlights below](docs/images/remastered.png)
+![The remastered style: a spiral strand of rounded chrome tiles with glowing blue outlines, green reflections at the top and warm highlights below](https://raw.githubusercontent.com/MichaelStromberg/electropaint/main/docs/images/remastered.png)
 
 - Each tile is a slab of polished metal with rounded edges, coloured by
   its slot's colour under a thin iridescent film whose thickness follows
@@ -100,7 +100,7 @@ screen, those refreshes repeat the last step.
 
 ## Controls
 
-<img src="docs/images/controls.png" width="480" alt="The control panel's Shape page: tile and effect toggles, the twelve strand sliders with their low, high and rate settings, position, and playback">
+<img src="https://raw.githubusercontent.com/MichaelStromberg/electropaint/main/docs/images/controls.png" width="480" alt="The control panel's Shape page: tile and effect toggles, the twelve strand sliders with their low, high and rate settings, position, and playback">
 
 The control panel has the same controls, ranges and behaviour as ep's own
 panels, on two pages: Shape and Colour. It uses full names for ep's terse

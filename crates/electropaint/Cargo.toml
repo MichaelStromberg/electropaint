@@ -13,8 +13,8 @@ categories = ["graphics", "rendering", "simulation", "os::macos-apis"]
 publish = true
 
 [dependencies]
-electropaint-core = { path = "../ep-core", version = "0.1.0" }
-electropaint-metal = { path = "../ep-metal", version = "0.1.0" }
+electropaint-core = { path = "../ep-core", version = "0.1.1" }
+electropaint-metal = { path = "../ep-metal", version = "0.1.1" }
 objc2 = "0.6.5"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSDictionary", "NSGeometry", "NSRunLoop", "NSString", "NSTimer", "std"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSAppearance", "NSApplication", "NSBitmapImageRep", "NSBox", "NSButton", "NSButtonCell", "NSCell", "NSColor", "NSControl", "NSCursor", "NSEvent", "NSFont", "NSFontDescriptor", "NSGraphics", "NSGridView", "NSImage", "NSImageRep", "NSLayoutAnchor", "NSLayoutConstraint", "NSMenu", "NSMenuItem", "NSPanel", "NSResponder", "NSRunningApplication", "NSScreen", "NSSegmentedControl", "NSSlider", "NSSliderCell", "NSStackView", "NSText", "NSTextField", "NSUserInterfaceLayout", "NSView", "NSWindow", "objc2-core-foundation", "objc2-quartz-core", "std"] }

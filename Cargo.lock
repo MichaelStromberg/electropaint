@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "electropaint"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "electropaint-core",
  "electropaint-metal",
@@ -54,11 +54,11 @@ dependencies = [
 
 [[package]]
 name = "electropaint-core"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "electropaint-metal"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "electropaint-core",
  "objc2",
@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "ep-saver"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "electropaint-core",
  "electropaint-metal",
