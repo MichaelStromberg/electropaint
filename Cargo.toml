@@ -8,5 +8,15 @@ edition = "2024"
 license = "MIT"
 publish = false
 
+[workspace.lints.rust]
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+as_ptr_cast_mut = "warn"
+needless_pass_by_value = "warn"
+# Contradicts unreachable_pub inside private modules.
+redundant_pub_crate = "allow"
+
 [profile.release]
 debug = 1
