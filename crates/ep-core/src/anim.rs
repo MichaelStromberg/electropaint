@@ -73,8 +73,12 @@ impl SeqState {
             .and_then(|c| (c + 1 < self.commands.len()).then_some(c + 1));
     }
 
-    /// The command at the cursor, if its time has come by `now`.
+    /// The command at the cursor, if the sequence is live and the
+    /// command's time has come by `now`.
     fn due_command(&self, now: f64) -> Option<Command> {
+        if !self.active {
+            return None;
+        }
         let cmd = self.commands[self.cur?];
         (f64::from(cmd.frame + self.start) < now).then_some(cmd)
     }
@@ -99,24 +103,16 @@ impl Sim {
     /// due command, sequences in list order.
     pub(crate) fn taste_queue(&mut self) {
         self.current_frame += 1.0;
+        // Commands never move the clock, so this holds for the whole pass.
+        let now = f64::from(self.current_frame) + 0.5;
         let mut busy = false;
         let mut i = 0;
         while i < self.seqs.len() {
             let s = &self.seqs[i];
-            if s.active && s.cur.is_some() {
-                busy = true;
-            }
-            let now = f64::from(self.current_frame) + 0.5;
-            if f64::from(s.start) < now && s.active {
-                let mut due = s.due_command(now);
-                while let Some(c) = due {
+            busy |= s.active && s.cur.is_some();
+            if s.active && f64::from(s.start) < now {
+                while let Some(c) = self.seqs[i].due_command(now) {
                     self.process_command(i, c);
-                    let s = &self.seqs[i];
-                    due = if s.active {
-                        s.due_command(f64::from(self.current_frame) + 0.5)
-                    } else {
-                        None
-                    };
                 }
             }
             // A killed sequence is unlinked; the next one now sits at `i`.

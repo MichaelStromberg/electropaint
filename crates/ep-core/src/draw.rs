@@ -186,7 +186,10 @@ impl Sim {
 
     /// One copy of a slot's shape: fill, then outline in the complementary
     /// colour, then the fill colour again.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the slot state drawit hands each copy (four in quad mode)"
+    )]
     fn slot_copy(
         &mut self,
         p: usize,

@@ -391,7 +391,10 @@ fn main() {
         .filter(|_| interactive)
         .map(|show| panel::PanelController::new(mtm, show, opts.controls, level));
 
-    #[allow(deprecated)]
+    #[expect(
+        deprecated,
+        reason = "activate() is cooperative and may not take focus from Terminal"
+    )]
     app.activateIgnoringOtherApps(true);
     app.run();
 }

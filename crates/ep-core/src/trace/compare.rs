@@ -71,7 +71,7 @@ pub(crate) fn compare_call(
             if close(a, b, tol) {
                 Ok(())
             } else {
-                let at = j.map_or(format!("arg {i}"), |j| format!("arg {i}[{j}]"));
+                let at = j.map_or_else(|| format!("arg {i}"), |j| format!("arg {i}[{j}]"));
                 Err(format!("{}: {at}: {a:e} vs {b:e}", trace.name))
             }
         };

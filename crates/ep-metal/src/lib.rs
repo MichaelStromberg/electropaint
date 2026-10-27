@@ -24,11 +24,12 @@ use objc2::runtime::ProtocolObject;
 use objc2_foundation::{NSString, ns_string};
 use objc2_metal::{
     MTLBlendFactor, MTLBlitCommandEncoder, MTLBuffer, MTLCommandBuffer, MTLCommandEncoder,
-    MTLCommandQueue, MTLCompareFunction, MTLDepthStencilDescriptor, MTLDepthStencilState,
-    MTLDevice, MTLDrawable, MTLLibrary, MTLLoadAction, MTLOrigin, MTLPixelFormat, MTLPrimitiveType,
-    MTLRenderCommandEncoder, MTLRenderPassDescriptor, MTLRenderPipelineDescriptor,
-    MTLRenderPipelineState, MTLResourceOptions, MTLSize, MTLStorageMode, MTLStoreAction,
-    MTLTexture, MTLTextureDescriptor, MTLTextureType, MTLTextureUsage,
+    MTLCommandQueue, MTLCompareFunction, MTLCreateSystemDefaultDevice, MTLDepthStencilDescriptor,
+    MTLDepthStencilState, MTLDevice, MTLDrawable, MTLLibrary, MTLLoadAction, MTLOrigin,
+    MTLPixelFormat, MTLPrimitiveType, MTLRenderCommandEncoder, MTLRenderPassDescriptor,
+    MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, MTLSize,
+    MTLStorageMode, MTLStoreAction, MTLTexture, MTLTextureDescriptor, MTLTextureType,
+    MTLTextureUsage,
 };
 use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
 
@@ -124,10 +125,18 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    /// A renderer on `device`. Panics if Metal cannot set it up; see
-    /// [`Renderer::try_new`].
+    /// A renderer on `device`.
+    ///
+    /// # Panics
+    ///
+    /// If Metal cannot set it up; see [`Renderer::try_new`].
     pub fn new(device: Retained<Device>) -> Self {
         Self::try_new(device).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// A renderer on the system's default Metal device.
+    pub fn system_default() -> Result<Self, RendererError> {
+        Self::try_new(MTLCreateSystemDefaultDevice().ok_or(RendererError::NoDevice)?)
     }
 
     pub fn try_new(device: Retained<Device>) -> Result<Self, RendererError> {
@@ -193,6 +202,10 @@ impl Renderer {
 
     /// Executes frames into a `width` x `height` target without a window and
     /// returns the displayed (front) buffer as BGRA8 rows, top row first.
+    ///
+    /// # Panics
+    ///
+    /// If `width` or `height` is 0.
     pub fn render_offscreen(&mut self, width: usize, height: usize, frames: &[Frame]) -> Vec<u8> {
         let cb = self.encode(width, height, frames).expect("encode");
         let row = width * 4;
@@ -370,7 +383,7 @@ impl Renderer {
         };
 
         let mut u = Uniforms {
-            proj: [[0.0; 4]; 4],
+            proj: projection_matrix(&self.projection, w / h),
             viewport: [w, h],
             px_scale: h / ORIGINAL_HEIGHT,
             line_width: 1.0,
@@ -380,27 +393,27 @@ impl Renderer {
             _pad: [0; 3],
         };
         for &(offset, op) in ops {
-            u.proj = projection_matrix(&self.projection, w / h);
+            let pipes = &self.pipelines;
             match op {
-                Op::SetProjection(p) => self.projection = *p,
+                Op::SetProjection(proj) => {
+                    self.projection = *proj;
+                    u.proj = projection_matrix(&self.projection, w / h);
+                }
                 Op::Clear(c) => {
                     u.fill_color = *c;
                     u.use_pattern = 0;
-                    self.draw_fill(&enc, &self.pipelines.fill, &u);
+                    draw_fill(&enc, &pipes.fill, &pipes.depth_off, &u);
                 }
                 Op::StippleFill { pattern, color } => {
                     u.fill_color = *color;
                     u.pattern = pattern.map(u32::from);
                     u.use_pattern = 1;
-                    self.draw_fill(&enc, &self.pipelines.fill, &u);
+                    draw_fill(&enc, &pipes.fill, &pipes.depth_off, &u);
                 }
-                Op::ZClear => {
-                    enc.setDepthStencilState(Some(&self.pipelines.depth_overwrite));
-                    self.draw_fill(&enc, &self.pipelines.zclear, &u);
-                }
+                Op::ZClear => draw_fill(&enc, &pipes.zclear, &pipes.depth_overwrite, &u),
                 Op::Triangles { state, verts } => {
                     let Some(vbuf) = vbuf else { continue };
-                    self.bind(&enc, &self.pipelines.tri, state, vbuf, offset, &u);
+                    self.bind(&enc, &self.pipelines.tri, *state, vbuf, offset, &u);
                     // SAFETY: `bind` set the vertex buffer at this op's
                     // offset, where its `verts.len()` vertices start.
                     unsafe {
@@ -418,7 +431,7 @@ impl Renderer {
                 } => {
                     let Some(vbuf) = vbuf else { continue };
                     u.line_width = *width;
-                    self.bind(&enc, &self.pipelines.line, state, vbuf, offset, &u);
+                    self.bind(&enc, &self.pipelines.line, *state, vbuf, offset, &u);
                     // SAFETY: each instance is one segment, two of the
                     // `verts.len()` vertices `bind` set up; `line_vertex`
                     // makes its six corners from them.
@@ -431,7 +444,7 @@ impl Renderer {
                         )
                     };
                 }
-                Op::SetDrawBuffer(_) | Op::Swap => unreachable!("handled by render"),
+                Op::SetDrawBuffer(_) | Op::Swap => unreachable!("handled by encode"),
             }
         }
         enc.endEncoding();
@@ -441,7 +454,7 @@ impl Renderer {
         &self,
         enc: &Encoder,
         pipelines: &[Retained<Pipeline>; 2],
-        state: &DrawState,
+        state: DrawState,
         vbuf: &ProtocolObject<dyn MTLBuffer>,
         offset: usize,
         u: &Uniforms,
@@ -455,17 +468,6 @@ impl Renderer {
         // SAFETY: `offset` came from `upload_vertices`, so it lies within `vbuf`.
         unsafe { enc.setVertexBuffer_offset_atIndex(Some(vbuf), offset, 0) };
         set_uniforms(enc, u);
-    }
-
-    fn draw_fill(&self, enc: &Encoder, pipeline: &Pipeline, u: &Uniforms) {
-        enc.setRenderPipelineState(pipeline);
-        if !std::ptr::eq(pipeline, &*self.pipelines.zclear) {
-            enc.setDepthStencilState(Some(&self.pipelines.depth_off));
-        }
-        set_uniforms(enc, u);
-        // SAFETY: the fill shaders make their full-screen triangle from the
-        // vertex id and read no vertex buffer.
-        unsafe { enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::Triangle, 0, 3) };
     }
 
     /// Blits colour buffer `index` to the layer's next drawable and presents it.
@@ -491,6 +493,16 @@ impl Renderer {
         let drawable: &ProtocolObject<dyn MTLDrawable> = ProtocolObject::from_ref(&*drawable);
         cb.presentDrawable(drawable);
     }
+}
+
+/// Fills the whole target through `pipeline` (colour or depth).
+fn draw_fill(enc: &Encoder, pipeline: &Pipeline, depth: &DepthState, u: &Uniforms) {
+    enc.setRenderPipelineState(pipeline);
+    enc.setDepthStencilState(Some(depth));
+    set_uniforms(enc, u);
+    // SAFETY: the fill shaders make their full-screen triangle from the
+    // vertex id and read no vertex buffer.
+    unsafe { enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::Triangle, 0, 3) };
 }
 
 fn set_uniforms(enc: &Encoder, u: &Uniforms) {

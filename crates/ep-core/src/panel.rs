@@ -202,7 +202,10 @@ impl Actuator {
 
     /// The other form some call sites use: "off" is `val < (min+max)/2`, so
     /// a value exactly at the midpoint counts as on.
-    #[allow(clippy::neg_cmp_op_on_partial_ord)] // exactly the original's test, NaN included
+    #[expect(
+        clippy::neg_cmp_op_on_partial_ord,
+        reason = "exactly the original's test, NaN included"
+    )]
     pub fn not_off(&self) -> bool {
         !(f64::from(self.val) < mid(self))
     }
@@ -306,8 +309,11 @@ impl Controls {
         self.acts.get_mut(usize::from(id)).and_then(|a| a.as_mut())
     }
 
-    /// The actuator with this id. Panics for an unused id; use for ids the
-    /// code itself names.
+    /// The actuator with this id; use for ids the code itself names.
+    ///
+    /// # Panics
+    ///
+    /// For an unused id.
     pub fn act(&self, id: u16) -> &Actuator {
         self.get(id).unwrap_or_else(|| panic!("no actuator {id}"))
     }

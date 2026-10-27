@@ -17,7 +17,6 @@ struct Builder {
     c: Controls,
 }
 
-#[allow(clippy::too_many_arguments)]
 impl Builder {
     fn add(&mut self, id: u16, kind: Kind, panel: Option<Panel>) -> &mut Actuator {
         let slot = &mut self.c.acts[usize::from(id)];
@@ -252,6 +251,10 @@ impl Builder {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "an `ep_mkact` dial: id, label, position, range and initial value"
+    )]
     fn dial(
         &mut self,
         id: u16,
@@ -288,6 +291,10 @@ impl Builder {
     }
 
     /// `mkepslider`: seven actuators with consecutive ids.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "mirrors mkepslider's argument list (controls.md §3.3), plus id and channel"
+    )]
     fn ep_slider(
         &mut self,
         id: u16,

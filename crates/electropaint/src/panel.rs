@@ -343,7 +343,7 @@ impl PanelController {
             ] {
                 set.push(rows.len() as isize);
                 rows.push(row(name, &|i| {
-                    let id = offset.map_or(base(i), |o| base(i) + o);
+                    let id = base(i) + offset.unwrap_or(0);
                     let (min, max) = self.range(id);
                     self.slider(mtm, min, max, Bind::Value(id), 100.0)
                 }));
@@ -429,14 +429,18 @@ impl PanelController {
                 show.sim()
                     .actuator(id)
                     .and_then(|a| a.label)
-                    .expect("toggle has a label")
+                    .unwrap_or_else(|| panic!("toggle {id} has no label"))
             }
         }
     }
 
     fn range(&self, id: u16) -> (f64, f64) {
         let show = self.ivars().show.borrow();
-        let (lo, hi) = show.sim().actuator(id).expect("actuator exists").span();
+        let (lo, hi) = show
+            .sim()
+            .actuator(id)
+            .unwrap_or_else(|| panic!("no actuator {id}"))
+            .span();
         (f64::from(lo), f64::from(hi))
     }
 

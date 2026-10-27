@@ -106,7 +106,8 @@ pub struct Sequence {
 pub struct Script {
     pub sequences: Vec<Sequence>,
     /// The sequence the parser was editing when it finished. Teach mode
-    /// (`recordact`) takes its duration and variance from it.
+    /// (`recordact`) takes its duration from it (the variance is forced
+    /// to 1).
     pub edit_seq: Option<i32>,
 }
 
