@@ -148,7 +148,9 @@ fn write_snapshot(
     }
     let bgra = renderer.render_offscreen(snap.width, snap.height, &frames);
     let rgb: Vec<u8> = bgra
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|p| [p[2], p[1], p[0]])
         .collect();
     let file = std::io::BufWriter::new(std::fs::File::create(&snap.path)?);
@@ -314,10 +316,10 @@ impl ShowView {
     }
 
     fn stop(&self) {
-        if let Some(st) = self.ivars().borrow_mut().as_mut() {
-            if let Some(link) = st.link.take() {
-                link.invalidate();
-            }
+        if let Some(st) = self.ivars().borrow_mut().as_mut()
+            && let Some(link) = st.link.take()
+        {
+            link.invalidate();
         }
     }
 }
