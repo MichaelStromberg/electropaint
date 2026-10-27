@@ -95,6 +95,8 @@ pub struct Renderer {
     front: usize,
     draw_buffer: DrawBuffer,
     projection: Projection,
+    /// Every vertex of the frames being encoded, kept to reuse its allocation.
+    vertices: Vec<Vertex>,
 }
 
 impl Renderer {
@@ -114,6 +116,7 @@ impl Renderer {
                 near: 0.01,
                 far: 1e6,
             },
+            vertices: Vec::new(),
         }
     }
 
@@ -244,10 +247,11 @@ impl Renderer {
     /// Copies every vertex of every draw into one shared buffer. Returns the
     /// buffer and, per op, its byte offset into it.
     fn upload_vertices(
-        &self,
+        &mut self,
         frames: &[Frame],
     ) -> (Option<Retained<ProtocolObject<dyn MTLBuffer>>>, Vec<usize>) {
-        let mut all: Vec<Vertex> = Vec::new();
+        let all = &mut self.vertices;
+        all.clear();
         let mut offsets = Vec::new();
         for op in frames.iter().flat_map(|f| &f.ops) {
             offsets.push(all.len() * size_of::<Vertex>());

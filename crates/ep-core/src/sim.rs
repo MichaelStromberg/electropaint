@@ -244,7 +244,7 @@ impl Sim {
         let recs = (0..ID_LIMIT)
             .map(|i| controls.get(i as u16).map(|_| ActRec::default()))
             .collect();
-        let script = opts.script.clone();
+        let script = opts.script;
         let mut gl = Gl::new(opts.call_log);
         gl.rgb_color_index = opts.rgb_color_index;
         let mut sim = Sim {
@@ -822,8 +822,8 @@ impl Sim {
         self.grabbed = Some(id);
         match (a.kind, a.slider) {
             (Kind::Slider | Kind::SliderValue, Some(s)) => {
-                let sl = self.controls.sliders[s].clone();
-                let main = self.controls.act(sl.id).clone();
+                let sl = self.controls.sliders[s];
+                let main = self.controls.act(sl.id);
                 let bar = v.clamp(main.min, main.max);
                 let up = self.controls.act_mut(sl.upper());
                 up.extval = up.extval.max(bar);
@@ -835,8 +835,8 @@ impl Sim {
             }
             (Kind::SliderUpper | Kind::SliderLower, Some(s)) => {
                 self.controls.save_range(s);
-                let sl = self.controls.sliders[s].clone();
-                let main = self.controls.act(sl.id).clone();
+                let sl = self.controls.sliders[s];
+                let main = self.controls.act(sl.id);
                 let x = v.clamp(main.min, main.max);
                 let (up, lo, val) = (sl.upper(), sl.lower(), sl.value());
                 if a.kind == Kind::SliderUpper {

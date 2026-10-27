@@ -286,7 +286,7 @@ fn mid(a: &Actuator) -> f64 {
 
 /// A composite ep slider (`mkepslider`): seven actuators with consecutive
 /// ids, plus ep's user data.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EpSlider {
     pub label: Option<&'static str>,
     /// Id of the main multislider; the others are at fixed offsets
@@ -455,7 +455,7 @@ impl Controls {
     }
 
     fn reclamp_window(&mut self, s: usize, a: f32) {
-        let sl = self.sliders[s].clone();
+        let sl = self.sliders[s];
         let max = self.act(sl.id).max;
         let b = self.act(sl.lower()).extval;
         let a = clamp_span(a, max, b);
@@ -470,7 +470,7 @@ impl Controls {
     /// initial value, return the accumulator to reset (second stage),
     /// otherwise move the value bar back. `M.val` is not updated.
     pub(crate) fn reset_slider(&mut self, s: usize) -> Option<Accumulator> {
-        let sl = self.sliders[s].clone();
+        let sl = self.sliders[s];
         let (min, max, init) = {
             let m = self.act(sl.id);
             (m.min, m.max, m.initval)
@@ -501,7 +501,7 @@ impl Controls {
     /// the speed slider's value as read at this point; `grabbed` is the
     /// actuator the user is holding, which freezes its own slider.
     pub(crate) fn animate_slider(&mut self, s: usize, speed: f32, grabbed: Option<u16>) {
-        let sl = self.sliders[s].clone();
+        let sl = self.sliders[s];
         let rate = self.act(sl.rate()).val;
         if grabbed == Some(sl.value()) || rate == 0.0 {
             return;
