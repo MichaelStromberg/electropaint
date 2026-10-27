@@ -1,5 +1,7 @@
 //! The command line: what it asks for, and its usage text.
 
+use std::path::Path;
+
 use electropaint_metal::surface::{Strands, Style};
 
 /// What the command line asks for.
@@ -57,7 +59,8 @@ pub(crate) struct Snapshot {
 }
 
 pub(crate) fn parse_args() -> Options {
-    match parse(std::env::args().skip(1)) {
+    let exe = std::env::current_exe().ok();
+    match parse(command_line(std::env::args().skip(1), exe.as_deref())) {
         Ok(Some(opts)) => opts,
         Ok(None) => {
             println!("{USAGE}");
@@ -68,6 +71,33 @@ pub(crate) fn parse_args() -> Options {
             std::process::exit(2);
         }
     }
+}
+
+/// Opened from Finder (or `open`), the app shows off: the remastered style,
+/// fullscreen with as many strands as fit, and the control panel up.
+const APP_DEFAULTS: [&str; 3] = ["--style", "remastered", "--controls"];
+
+/// The arguments to parse: `args` without the process serial number that
+/// LaunchServices may add, or the app's defaults when an app bundle (`exe`
+/// inside `*.app/Contents/MacOS`) is opened with none.
+fn command_line(args: impl IntoIterator<Item = String>, exe: Option<&Path>) -> Vec<String> {
+    let args: Vec<String> = args
+        .into_iter()
+        .filter(|a| !a.starts_with("-psn_"))
+        .collect();
+    if args.is_empty() && exe.is_some_and(in_app_bundle) {
+        APP_DEFAULTS.map(String::from).to_vec()
+    } else {
+        args
+    }
+}
+
+/// Whether `exe` is an app bundle's executable.
+fn in_app_bundle(exe: &Path) -> bool {
+    let bundle = exe.parent().filter(|dir| dir.ends_with("Contents/MacOS"));
+    bundle
+        .and_then(|dir| dir.parent()?.parent())
+        .is_some_and(|app| app.extension().is_some_and(|ext| ext == "app"))
 }
 
 /// The options `args` asks for, `None` for `--help`, or what is wrong with
@@ -135,6 +165,8 @@ at --size (default 1280x1024).
 
 Fullscreen on the main display (every display with --all-displays, each
 with its own show); any key or click quits.
+Opened as an app (from Finder) with no options, it starts as
+--style remastered --controls.
 
 With --windowed or --controls, the show is interactive as ep was: keys are
 its shortcuts (R ribbons, Z z-buffer, L light, Q smear, ...), a click
@@ -245,6 +277,27 @@ mod tests {
             strands("--style remastered --strands 2"),
             Some(Strands::Count(2))
         );
+    }
+
+    #[test]
+    fn opened_as_an_app_it_shows_off() {
+        let args = |list: &[&str]| list.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>();
+        let app = Path::new("/Applications/electropaint.app/Contents/MacOS/electropaint");
+        let cargo = Path::new("/Users/me/.cargo/bin/electropaint");
+        assert_eq!(
+            command_line(args(&["-psn_0_1234"]), Some(app)),
+            args(&APP_DEFAULTS)
+        );
+        assert!(command_line(args(&[]), Some(cargo)).is_empty());
+        assert!(command_line(args(&[]), None).is_empty());
+        // Flags given win, with or without the bundle.
+        assert_eq!(
+            command_line(args(&["--windowed"]), Some(app)),
+            args(&["--windowed"])
+        );
+        let o = parse(args(&APP_DEFAULTS)).ok().flatten().expect("options");
+        assert!(o.style == Style::Remastered && o.controls && !o.windowed);
+        assert_eq!(o.strands(), Strands::Auto);
     }
 
     #[test]
