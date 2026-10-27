@@ -278,6 +278,11 @@ impl Actuator {
     pub fn not_off(&self) -> bool {
         !(f64::from(self.val) < mid(self))
     }
+
+    /// The range as `(low, high)`, whichever way round `min` and `max` are.
+    pub fn span(&self) -> (f32, f32) {
+        (self.min.min(self.max), self.min.max(self.max))
+    }
 }
 
 fn mid(a: &Actuator) -> f64 {

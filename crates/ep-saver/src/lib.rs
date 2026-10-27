@@ -6,27 +6,24 @@
 
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use ep_core::Options;
-use ep_metal::Renderer;
 use ep_metal::show::Show;
+use ep_metal::surface::Surface;
 use objc2::rc::{Allocated, Retained};
 use objc2::runtime::{AnyObject, Bool};
 use objc2::{ClassType, DefinedClass, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::NSView;
 use objc2_foundation::{
     NSDefaultRunLoopMode, NSDistributedNotificationCenter, NSNotification, NSRect, NSRunLoop,
-    NSSize, ns_string,
+    ns_string,
 };
-use objc2_metal::MTLCreateSystemDefaultDevice;
-use objc2_quartz_core::{CADisplayLink, CAMetalLayer};
+use objc2_quartz_core::CADisplayLink;
 use objc2_screen_saver::ScreenSaverView;
 
 struct SaverState {
     show: Show,
-    renderer: Renderer,
-    layer: Retained<CAMetalLayer>,
+    surface: Surface,
     _link: Retained<CADisplayLink>,
 }
 
@@ -80,17 +77,11 @@ define_class!(
 
 impl SaverView {
     fn setup(&self) {
-        let device = MTLCreateSystemDefaultDevice().expect("no Metal device");
-        let renderer = Renderer::new(device);
-        let layer = CAMetalLayer::new();
-        renderer.configure_layer(&layer);
-        self.setLayer(Some(&layer));
+        let surface = Surface::new().expect("no Metal device");
+        self.setLayer(Some(surface.layer()));
         self.setWantsLayer(true);
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs() as i64);
-        let seed = now + INSTANCES.fetch_add(1, Ordering::Relaxed);
+        let seed = Options::clock_seed() + INSTANCES.fetch_add(1, Ordering::Relaxed);
         // SAFETY: `step:` is defined on this class and takes the `CADisplayLink`.
         let link = unsafe { self.displayLinkWithTarget_selector(self as &AnyObject, sel!(step:)) };
         // SAFETY: the main run loop, from the main thread (`MainThreadOnly`).
@@ -98,8 +89,7 @@ impl SaverView {
         let show = Show::new(Options::new(seed).saver());
         *self.ivars().borrow_mut() = Some(SaverState {
             show,
-            renderer,
-            layer,
+            surface,
             _link: link,
         });
 
@@ -119,13 +109,8 @@ impl SaverView {
         let mut state = self.ivars().borrow_mut();
         let Some(st) = state.as_mut() else { return };
         let scale = self.window().map_or(1.0, |w| w.backingScaleFactor());
-        let bounds = self.bounds().size;
-        let size = NSSize::new(bounds.width * scale, bounds.height * scale);
-        if st.layer.drawableSize() != size {
-            st.layer.setContentsScale(scale);
-            st.layer.setDrawableSize(size);
-        }
-        st.show.render(&mut st.renderer, &st.layer, time);
+        st.surface.fit(self.bounds().size, scale);
+        st.surface.render(&mut st.show, time);
     }
 }
 

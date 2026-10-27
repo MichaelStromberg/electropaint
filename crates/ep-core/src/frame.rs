@@ -80,3 +80,10 @@ pub enum Op {
 pub struct Frame {
     pub ops: Vec<Op>,
 }
+
+impl Frame {
+    /// How many `swapbuffers` the tick did: the 60 Hz retraces it took.
+    pub fn swap_count(&self) -> usize {
+        self.ops.iter().filter(|op| matches!(op, Op::Swap)).count()
+    }
+}

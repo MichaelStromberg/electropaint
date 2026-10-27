@@ -3,17 +3,13 @@
 use ep_core::frame::{DrawBuffer, Op};
 use ep_core::{Options, Sim, SwapCause, ids};
 
-fn swaps(ops: &[Op]) -> usize {
-    ops.iter().filter(|o| **o == Op::Swap).count()
-}
-
 #[test]
 fn startup_and_fullscreen_swaps() {
     let mut sim = Sim::new(Options::new(12345));
     let f = sim.tick();
     // Startup clear, the two full-screen swaps and the frame itself: trace
     // frames 0..=3.
-    assert_eq!(swaps(&f.ops), 4);
+    assert_eq!(f.swap_count(), 4);
     assert_eq!(
         sim.swap_causes(),
         [
@@ -38,7 +34,7 @@ fn startup_and_fullscreen_swaps() {
         .collect();
     assert_eq!(proj.last().unwrap().aspect, 1.25);
     let f = sim.tick();
-    assert_eq!(swaps(&f.ops), 1);
+    assert_eq!(f.swap_count(), 1);
     assert_eq!(sim.swap_causes(), [SwapCause::Frame]);
 }
 

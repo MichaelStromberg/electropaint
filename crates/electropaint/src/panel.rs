@@ -15,7 +15,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use ep_core::colour::hls_to_rgb;
-use ep_core::{Kind, ids};
+use ep_core::{Actuator, Kind, Panel, ids};
 use ep_metal::show::Show;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -210,30 +210,27 @@ impl PanelController {
     // ------------------------------------------------------------- layout
 
     fn main_tab(&self, mtm: MainThreadMarker) -> Retained<NSView> {
-        let toggles: [(u16, &str); 14] = [
-            (ids::OUTLINE, "outline (O)"),
-            (ids::FATLINE, "fat lines (I)"),
-            (ids::FILL, "fill (U)"),
-            (ids::RIBBON, "ribbons (R)"),
-            (ids::SMOOTH, "smooth (M)"),
-            (ids::SMEAR, "smear (Q)"),
-            // ep creates this toggle but leaves it off its RGB panel (and so
-            // without a key); scripts can still reach it, and so can this panel.
-            (ids::FADE, "fade"),
-            (ids::BACKGROUND, "back (E)"),
-            (ids::ZBUF, "z-buf (Z)"),
-            (ids::LIGHT, "light (L)"),
-            (ids::STOP, "stop (S)"),
-            (ids::FULLSCREEN, "full screen (F)"),
-            (ids::AUTO, "auto"),
-            // From ep's texture panel, which the port doesn't have.
-            (ids::TRIANGLES, "triangles (T)"),
+        let toggles = [
+            ids::OUTLINE,
+            ids::FATLINE,
+            ids::FILL,
+            ids::RIBBON,
+            ids::SMOOTH,
+            ids::SMEAR,
+            ids::FADE,
+            ids::BACKGROUND,
+            ids::ZBUF,
+            ids::LIGHT,
+            ids::STOP,
+            ids::FULLSCREEN,
+            ids::AUTO,
+            ids::TRIANGLES,
         ];
         let mut toggle_rows: Vec<Vec<Retained<NSView>>> = Vec::new();
         for chunk in toggles.chunks(4) {
             let mut row: Vec<Retained<NSView>> = chunk
                 .iter()
-                .map(|&(id, label)| self.checkbox(mtm, label, Bind::Press(id)))
+                .map(|&id| self.checkbox(mtm, self.toggle_label(id), Bind::Press(id)))
                 .collect();
             while row.len() < 4 {
                 row.push(empty(mtm));
@@ -250,20 +247,9 @@ impl PanelController {
         let toggles: Retained<NSView> = Retained::into_super(grid(mtm, toggle_rows));
 
         let mut rows = vec![slider_header(mtm)];
-        for (id, label) in [
-            (ids::ZOOM, "zoom"),
-            (ids::TWIST, "twst"),
-            (ids::SPEED, "spd"),
-            (ids::N, "n"),
-            (ids::AMBIENT, "amb"),
-            (ids::SHINY, "shn"),
-            (ids::WHEEL, "whl"),
-            (ids::SPIN, "spn"),
-            (ids::FLIP, "flp"),
-            (ids::ARM, "arm"),
-            (ids::WRIST, "wrst"),
-            (ids::SIZE, "sz"),
-        ] {
+        for (id, label) in
+            self.labelled_actuators(|a| a.kind == Kind::Slider && a.panel == Some(Panel::Main))
+        {
             rows.push(self.ep_slider_row(mtm, label, id, 200.0));
         }
         let sliders: Retained<NSView> = Retained::into_super(grid(mtm, rows));
@@ -285,11 +271,7 @@ impl PanelController {
 
     fn colours_tab(&self, mtm: MainThreadMarker) -> Retained<NSView> {
         let mut dials: Vec<Retained<NSView>> = Vec::new();
-        for (id, text) in [
-            (ids::ALPHA_OUT, "outa"),
-            (ids::ALPHA_BACK, "baka"),
-            (ids::HUE_BACK_RATE, "outr"),
-        ] {
+        for (id, text) in self.labelled_actuators(|a| a.kind == Kind::Dial) {
             let (min, max) = self.range(id);
             dials.push(label(mtm, text));
             dials.push(self.dial(mtm, min, max, Bind::Value(id)));
@@ -401,10 +383,38 @@ impl PanelController {
 
     // ----------------------------------------------------------- controls
 
+    /// The labelled actuators `which` selects, in id order, with ep's labels.
+    fn labelled_actuators(&self, which: impl Fn(&Actuator) -> bool) -> Vec<(u16, &'static str)> {
+        let show = self.ivars().show.borrow();
+        show.sim()
+            .actuators()
+            .filter(|a| which(a))
+            .filter_map(|a| Some((a.id, a.label?)))
+            .collect()
+    }
+
+    /// A toggle's label: ep's own, except for the two toggles ep has no
+    /// label for on its main panel.
+    fn toggle_label(&self, id: u16) -> &'static str {
+        match id {
+            // ep creates this toggle but leaves it off its RGB panel (and so
+            // without a key); scripts can still reach it, and so can this panel.
+            ids::FADE => "fade",
+            // From ep's texture panel, which the port doesn't have.
+            ids::TRIANGLES => "triangles (T)",
+            _ => {
+                let show = self.ivars().show.borrow();
+                show.sim()
+                    .actuator(id)
+                    .and_then(|a| a.label)
+                    .expect("toggle has a label")
+            }
+        }
+    }
+
     fn range(&self, id: u16) -> (f64, f64) {
         let show = self.ivars().show.borrow();
-        let a = show.sim().actuator(id).expect("actuator exists");
-        let (lo, hi) = (a.min.min(a.max), a.min.max(a.max));
+        let (lo, hi) = show.sim().actuator(id).expect("actuator exists").span();
         (f64::from(lo), f64::from(hi))
     }
 
@@ -556,7 +566,7 @@ impl PanelController {
             Bind::ChanMode => {
                 // Clicking ep's hue palette switches to lightness, and the
                 // lightness palette switches back.
-                let lightness = !sim.actuator(ids::HUE_PALETTE).is_some_and(|a| a.visible);
+                let lightness = !sim.controls().hue_mode;
                 let want = c
                     .view
                     .downcast_ref::<NSSegmentedControl>()
@@ -657,7 +667,7 @@ impl PanelController {
                 }
                 Bind::ChanMode => {
                     if let Some(s) = c.view.downcast_ref::<NSSegmentedControl>() {
-                        let lightness = !sim.actuator(ids::HUE_PALETTE).is_some_and(|a| a.visible);
+                        let lightness = !sim.controls().hue_mode;
                         s.setSelectedSegment(lightness as isize);
                     }
                 }
@@ -665,7 +675,7 @@ impl PanelController {
             }
         }
         if let Some((grid, hue, light)) = self.ivars().chan_rows.borrow().as_ref() {
-            let lightness = !sim.actuator(ids::HUE_PALETTE).is_some_and(|a| a.visible);
+            let lightness = !sim.controls().hue_mode;
             for (rows, hidden) in [(hue, lightness), (light, !lightness)] {
                 for &r in rows {
                     grid.rowAtIndex(r).setHidden(hidden);

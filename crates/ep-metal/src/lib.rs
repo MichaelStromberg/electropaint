@@ -13,6 +13,7 @@
 //! picture fills the screen instead of being letterboxed.
 
 pub mod show;
+pub mod surface;
 
 use std::ffi::c_void;
 use std::ptr::NonNull;

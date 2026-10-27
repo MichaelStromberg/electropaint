@@ -1,7 +1,7 @@
 //! One running electropaint show: the simulation paced as the original was,
 //! at 60 Hz, with in-between pictures for faster displays.
 
-use ep_core::frame::{Frame, Op};
+use ep_core::frame::Frame;
 use ep_core::{Options, Sim};
 
 use crate::Renderer;
@@ -62,9 +62,9 @@ impl Show {
                 None if self.sim.exited() => break,
                 None => {
                     let frame = self.sim.tick();
-                    let swaps = frame.ops.iter().filter(|op| matches!(op, Op::Swap)).count();
                     // A tick with no swap (rare) still takes a retrace, so time moves.
-                    (frame, swaps.max(1) as u32)
+                    let retraces = frame.swap_count().max(1) as u32;
+                    (frame, retraces)
                 }
             };
             if self.shown + f64::from(retraces) > now + 1e-6 {

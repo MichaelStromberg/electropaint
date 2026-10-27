@@ -5,10 +5,10 @@ mod panel;
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use ep_metal::Renderer;
 use ep_metal::show::Show;
+use ep_metal::surface::Surface;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -18,7 +18,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSDefaultRunLoopMode, NSPoint, NSRect, NSRunLoop, NSSize, NSString};
 use objc2_metal::MTLCreateSystemDefaultDevice;
-use objc2_quartz_core::{CADisplayLink, CAMetalLayer};
+use objc2_quartz_core::CADisplayLink;
 
 struct Options {
     windowed: bool,
@@ -138,12 +138,7 @@ fn write_snapshot(
     let (mut frames, mut retraces) = (Vec::new(), 0);
     while retraces < snap.frames && !sim.exited() {
         let frame = sim.tick();
-        retraces += frame
-            .ops
-            .iter()
-            .filter(|op| matches!(op, ep_core::frame::Op::Swap))
-            .count()
-            .max(1) as u64;
+        retraces += frame.swap_count().max(1) as u64;
         frames.push(frame);
     }
     let bgra = renderer.render_offscreen(snap.width, snap.height, &frames);
@@ -162,8 +157,7 @@ fn write_snapshot(
 
 struct ViewState {
     show: Rc<RefCell<Show>>,
-    renderer: Renderer,
-    layer: Retained<CAMetalLayer>,
+    surface: Surface,
     link: Option<Retained<CADisplayLink>>,
     /// Screensaver-style: any key or click quits. Otherwise input goes to ep.
     quit_on_input: bool,
@@ -229,12 +223,9 @@ impl ShowView {
         // SAFETY: NSView's designated initialiser, once, on a fresh allocation.
         let view: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
 
-        let device = MTLCreateSystemDefaultDevice().expect("no Metal device");
-        let renderer = Renderer::new(device);
-        let layer = CAMetalLayer::new();
-        renderer.configure_layer(&layer);
+        let surface = Surface::new().expect("no Metal device");
         // Layer-hosting view: set the layer before asking for one.
-        view.setLayer(Some(&layer));
+        view.setLayer(Some(surface.layer()));
         view.setWantsLayer(true);
 
         // SAFETY: `step:` is defined on this class and takes the `CADisplayLink`.
@@ -244,8 +235,7 @@ impl ShowView {
 
         *view.ivars().borrow_mut() = Some(ViewState {
             show,
-            renderer,
-            layer,
+            surface,
             link: Some(link),
             quit_on_input,
         });
@@ -259,16 +249,11 @@ impl ShowView {
 
         // Keep the drawable at the view's size in device pixels.
         let scale = self.window().map_or(1.0, |w| w.backingScaleFactor());
-        let bounds = self.bounds().size;
-        let size = NSSize::new(bounds.width * scale, bounds.height * scale);
-        if st.layer.drawableSize() != size {
-            st.layer.setContentsScale(scale);
-            st.layer.setDrawableSize(size);
-        }
+        st.surface.fit(self.bounds().size, scale);
 
         let exited = {
             let mut show = st.show.borrow_mut();
-            show.render(&mut st.renderer, &st.layer, time);
+            st.surface.render(&mut show, time);
             show.sim().exited()
         };
         drop(state);
@@ -337,11 +322,7 @@ fn show_options(opts: &Options, seed: i64) -> ep_core::Options {
 }
 
 fn seed_base(opts: &Options) -> i64 {
-    opts.seed.unwrap_or_else(|| {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs() as i64)
-    })
+    opts.seed.unwrap_or_else(ep_core::Options::clock_seed)
 }
 
 fn open_window(

@@ -68,16 +68,19 @@ impl Options {
         self.startup_redraw = false;
         self
     }
+
+    /// The seed the original uses, `time(NULL)`: seconds since the epoch.
+    pub fn clock_seed() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64)
+    }
 }
 
 impl Default for Options {
     /// The default show seeded from the clock, as the original does.
     fn default() -> Options {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        Options::new(now)
+        Options::new(Options::clock_seed())
     }
 }
 
@@ -818,7 +821,8 @@ impl Sim {
         let Some(a) = self.controls.get(id).cloned() else {
             return;
         };
-        let clamp = |v: f32| v.clamp(a.min.min(a.max), a.max.max(a.min));
+        let (lo, hi) = a.span();
+        let clamp = |v: f32| v.clamp(lo, hi);
         self.grabbed = Some(id);
         match (a.kind, a.slider) {
             (Kind::Slider | Kind::SliderValue, Some(s)) => {
