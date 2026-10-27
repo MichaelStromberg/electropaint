@@ -156,7 +156,7 @@ impl SaverView {
         let Some(st) = state.as_mut() else { return };
         let scale = self.window().map_or(1.0, |w| w.backingScaleFactor());
         st.surface.fit(self.bounds().size, scale);
-        st.surface.render(&mut st.show, time);
+        st.surface.render([&mut st.show], time);
     }
 }
 

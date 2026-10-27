@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use ep_metal::Renderer;
 use ep_metal::show::Show;
-use ep_metal::surface::Surface;
+use ep_metal::surface::{Surface, auto_strands, region};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -30,6 +30,28 @@ struct Options {
     script: Option<ep_core::Script>,
     seed: Option<i64>,
     snapshot: Option<Snapshot>,
+    strands: Strands,
+}
+
+/// `--strands`: how many shows run side by side in each window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Strands {
+    /// As many as fit, each about the shape of ep's screen.
+    Auto,
+    Count(usize),
+}
+
+/// The most strands `--strands` takes: each has buffers of its own.
+const MAX_STRANDS: usize = 16;
+
+impl Strands {
+    /// The number of strands across a `width` x `height` view.
+    fn count(self, width: f64, height: f64) -> usize {
+        match self {
+            Strands::Auto => auto_strands(width, height),
+            Strands::Count(n) => n,
+        }
+    }
 }
 
 /// `--snapshot FILE`: render offscreen and write the picture shown after the
@@ -67,6 +89,7 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Options>, Stri
         script: None,
         seed: None,
         snapshot: None,
+        strands: Strands::Count(1),
     };
     let (mut frames, mut size) = (600, (1280, 1024));
     let mut args = args.into_iter();
@@ -95,6 +118,14 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Options>, Stri
                 });
             }
             "--frames" => frames = number(args.next(), "--frames")?,
+            "--strands" => {
+                let v = args.next().unwrap_or_default();
+                opts.strands = match v.parse() {
+                    _ if v == "auto" => Strands::Auto,
+                    Ok(n @ 1..=MAX_STRANDS) => Strands::Count(n),
+                    _ => return Err(format!("--strands takes auto or 1 to {MAX_STRANDS}")),
+                };
+            }
             "--size" => {
                 let v = args.next().unwrap_or_default();
                 size = v
@@ -113,10 +144,12 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Options>, Stri
     Ok(Some(opts))
 }
 
-const USAGE: &str = "usage: electropaint [--windowed | --all-displays] [--controls] [--quad] [--script FILE] [--seed N]
-       electropaint --snapshot FILE.png [--quad] [--script FILE] [--seed N] [--frames N] [--size WxH]
+const USAGE: &str = "usage: electropaint [--windowed | --all-displays] [--controls] [--quad] [--script FILE] [--seed N] [--strands N|auto]
+       electropaint --snapshot FILE.png [--quad] [--script FILE] [--seed N] [--strands N|auto] [--frames N] [--size WxH]
 
 --script runs an ep script (as `ep -a`) instead of the built-in show.
+--strands runs several shows side by side, each with its own seed; auto
+fits as many as the screen's width takes (three on 32:9).
 --snapshot saves the picture after about --frames 60 Hz retraces (default 600)
 at --size (default 1280x1024).
 
@@ -137,11 +170,41 @@ fn number<T: std::str::FromStr>(v: Option<String>, what: &str) -> Result<T, Stri
         .ok_or_else(|| format!("{what} needs a number"))
 }
 
-/// Runs a show offscreen for `snap.frames` retraces and saves what is displayed.
-fn write_snapshot(
+/// Runs the shows offscreen for `snap.frames` retraces and saves what is
+/// displayed, the strands side by side.
+fn write_snapshot(snap: &Snapshot, opts: &Options) -> Result<(), Box<dyn std::error::Error>> {
+    let count = opts.strands.count(snap.width as f64, snap.height as f64);
+    let base = seed_base(opts);
+    let mut rgb = vec![0; snap.width * snap.height * 3];
+    for index in 0..count {
+        let (x, width) = region(snap.width, count, index);
+        let seed = base + index as i64;
+        let bgra = strand_snapshot(snap, width, show_options(opts, seed))?;
+        for (y, row) in bgra.chunks_exact(width * 4).enumerate() {
+            let out = &mut rgb[(y * snap.width + x) * 3..][..width * 3];
+            for (o, p) in out
+                .as_chunks_mut::<3>()
+                .0
+                .iter_mut()
+                .zip(row.as_chunks::<4>().0)
+            {
+                *o = [p[2], p[1], p[0]];
+            }
+        }
+    }
+    let file = std::io::BufWriter::new(std::fs::File::create(&snap.path)?);
+    let mut encoder = png::Encoder::new(file, snap.width as u32, snap.height as u32);
+    encoder.set_color(png::ColorType::Rgb);
+    encoder.write_header()?.write_image_data(&rgb)?;
+    Ok(())
+}
+
+/// One strand of a snapshot, `width` pixels wide: its picture as BGRA8 rows.
+fn strand_snapshot(
     snap: &Snapshot,
+    width: usize,
     opts: ep_core::Options,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<Vec<u8>, ep_metal::RendererError> {
     let mut renderer = Renderer::system_default()?;
     let mut sim = ep_core::Sim::new(opts);
     let (mut frames, mut retraces) = (Vec::new(), 0);
@@ -150,22 +213,14 @@ fn write_snapshot(
         retraces += u64::from(frame.retraces());
         frames.push(frame);
     }
-    let bgra = renderer.render_offscreen(snap.width, snap.height, &frames)?;
-    let rgb: Vec<u8> = bgra
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .flat_map(|p| [p[2], p[1], p[0]])
-        .collect();
-    let file = std::io::BufWriter::new(std::fs::File::create(&snap.path)?);
-    let mut encoder = png::Encoder::new(file, snap.width as u32, snap.height as u32);
-    encoder.set_color(png::ColorType::Rgb);
-    encoder.write_header()?.write_image_data(&rgb)?;
-    Ok(())
+    renderer.render_offscreen(width, snap.height, &frames)
 }
 
 struct ViewState {
-    show: Rc<RefCell<Show>>,
+    /// One per strand, left to right.
+    shows: Vec<Rc<RefCell<Show>>>,
+    /// The strand that keys and clicks go to (the one the panel drives).
+    main: usize,
     surface: Surface,
     /// Screensaver-style: any key or click quits. Otherwise input goes to ep.
     quit_on_input: bool,
@@ -176,8 +231,8 @@ struct ViewState {
 type ViewIvars = RefCell<Option<ViewState>>;
 
 define_class!(
-    /// A view hosting a `CAMetalLayer` that runs one show, driven by its
-    /// display's own display link (so at that display's refresh rate).
+    /// A view hosting a `CAMetalLayer` that runs shows side by side, driven
+    /// by its display's own display link (so at that display's refresh rate).
     #[unsafe(super(NSView))]
     #[thread_kind = MainThreadOnly]
     #[name = "EPShowView"]
@@ -237,7 +292,7 @@ impl ShowView {
     fn new(
         mtm: MainThreadMarker,
         frame: NSRect,
-        show: Rc<RefCell<Show>>,
+        shows: Vec<Rc<RefCell<Show>>>,
         quit_on_input: bool,
     ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(RefCell::new(None));
@@ -261,14 +316,15 @@ impl ShowView {
         // The run loop retains the link, which runs until the app quits.
 
         *view.ivars().borrow_mut() = Some(ViewState {
-            show,
+            main: shows.len() / 2,
+            shows,
             surface,
             quit_on_input,
         });
         view
     }
 
-    /// Renders what the show has for a refresh at `time` seconds.
+    /// Renders what the shows have for a refresh at `time` seconds.
     fn advance(&self, time: f64) {
         let mut state = self.ivars().borrow_mut();
         let Some(st) = state.as_mut() else { return };
@@ -278,9 +334,9 @@ impl ShowView {
         st.surface.fit(self.bounds().size, scale);
 
         let exited = {
-            let mut show = st.show.borrow_mut();
-            st.surface.render(&mut show, time);
-            show.sim().exited()
+            let mut shows: Vec<_> = st.shows.iter().map(|s| s.borrow_mut()).collect();
+            st.surface.render(shows.iter_mut().map(|s| &mut **s), time);
+            shows.iter().any(|s| s.sim().exited())
         };
         drop(state);
         if exited {
@@ -301,7 +357,7 @@ impl ShowView {
             if st.quit_on_input || chars == "\u{1b}" {
                 true
             } else {
-                let mut show = st.show.borrow_mut();
+                let mut show = st.shows[st.main].borrow_mut();
                 for c in chars.chars() {
                     show.sim_mut().key(c);
                 }
@@ -320,7 +376,10 @@ impl ShowView {
             let state = self.ivars().borrow();
             let Some(st) = state.as_ref() else { return };
             if !st.quit_on_input {
-                st.show.borrow_mut().sim_mut().press(ep_core::ids::MOUSE);
+                st.shows[st.main]
+                    .borrow_mut()
+                    .sim_mut()
+                    .press(ep_core::ids::MOUSE);
             }
             st.quit_on_input
         };
@@ -348,15 +407,18 @@ fn seed_base(opts: &Options) -> i64 {
     opts.seed.unwrap_or_else(ep_core::Options::clock_seed)
 }
 
-/// Opens a window running `show`: borderless and covering `screen`, above
-/// the menu bar and Dock like a screen saver, or with no screen the
-/// `--windowed` window. `quit_on_input` makes any key or click quit.
+/// Opens a window running `strands` shows side by side, each made by
+/// `new_show`: borderless and covering `screen`, above the menu bar and Dock
+/// like a screen saver, or with no screen the `--windowed` window.
+/// `quit_on_input` makes any key or click quit. Also returns the show that
+/// takes the window's input, the middle one.
 fn open_window(
     mtm: MainThreadMarker,
     screen: Option<&NSScreen>,
-    show: Rc<RefCell<Show>>,
+    strands: Strands,
+    new_show: &mut dyn FnMut() -> Rc<RefCell<Show>>,
     quit_on_input: bool,
-) -> Retained<NSWindow> {
+) -> (Retained<NSWindow>, Rc<RefCell<Show>>) {
     let (rect, style) = match screen {
         Some(screen) => (screen.frame(), NSWindowStyleMask::Borderless),
         // The original's window: 1280x1024 aspect, at a comfortable size.
@@ -384,7 +446,10 @@ fn open_window(
     // SAFETY: `Retained` owns the window, so AppKit must not release it too.
     unsafe { window.setReleasedWhenClosed(false) };
     let content = NSRect::new(NSPoint::new(0.0, 0.0), rect.size);
-    let view = ShowView::new(mtm, content, show, quit_on_input);
+    let count = strands.count(rect.size.width, rect.size.height);
+    let shows: Vec<_> = (0..count).map(|_| new_show()).collect();
+    let main = shows[count / 2].clone();
+    let view = ShowView::new(mtm, content, shows, quit_on_input);
     window.setContentView(Some(&view));
     if screen.is_some() {
         window.setLevel(SHOW_LEVEL);
@@ -395,7 +460,7 @@ fn open_window(
     }
     window.makeKeyAndOrderFront(None);
     window.makeFirstResponder(Some(&view));
-    window
+    (window, main)
 }
 
 /// Window level of fullscreen shows: above the menu bar and Dock.
@@ -404,7 +469,7 @@ const SHOW_LEVEL: isize = 1000;
 fn main() {
     let opts = parse_args();
     if let Some(snap) = &opts.snapshot {
-        if let Err(e) = write_snapshot(snap, show_options(&opts, seed_base(&opts))) {
+        if let Err(e) = write_snapshot(snap, &opts) {
             eprintln!("electropaint: snapshot failed: {e}");
             std::process::exit(1);
         }
@@ -450,21 +515,27 @@ fn write_panel_snapshot(mtm: MainThreadMarker, path: &str, opts: &Options) {
 }
 
 /// Opens the shows: one window with `--windowed`, else a borderless
-/// full-screen window on the main display (or on every display). Also
-/// returns the show the control panel drives: the (first) window's.
+/// full-screen window on the main display (or on every display), each with
+/// its strands. Also returns the show the control panel drives: the first
+/// window's middle strand.
 fn open_show_windows(
     mtm: MainThreadMarker,
     opts: &Options,
     interactive: bool,
 ) -> (Vec<Retained<NSWindow>>, Option<Rc<RefCell<Show>>>) {
-    let base = seed_base(opts);
-    let new_show = |seed| Rc::new(RefCell::new(Show::new(show_options(opts, seed))));
+    // Every show gets its own seed, in order across windows and strands.
+    let mut seed = seed_base(opts);
+    let mut new_show = || {
+        let show = Show::new(show_options(opts, seed));
+        seed += 1;
+        Rc::new(RefCell::new(show))
+    };
     let mut windows = Vec::new();
     let mut panel_show = None;
     if opts.windowed {
-        let show = new_show(base);
-        panel_show = Some(show.clone());
-        windows.push(open_window(mtm, None, show, false));
+        let (window, main) = open_window(mtm, None, opts.strands, &mut new_show, false);
+        panel_show = Some(main);
+        windows.push(window);
     } else {
         // The first screen is the main display (the one with the menu bar).
         let screens = NSScreen::screens(mtm);
@@ -473,10 +544,16 @@ fn open_show_windows(
         } else {
             screens.len().min(1)
         };
-        for (i, screen) in screens.iter().take(count).enumerate() {
-            let show = new_show(base + i as i64);
-            panel_show.get_or_insert_with(|| show.clone());
-            windows.push(open_window(mtm, Some(&screen), show, !interactive));
+        for screen in screens.iter().take(count) {
+            let (window, main) = open_window(
+                mtm,
+                Some(&screen),
+                opts.strands,
+                &mut new_show,
+                !interactive,
+            );
+            panel_show.get_or_insert(main);
+            windows.push(window);
         }
         if !opts.controls {
             NSCursor::hide();
@@ -516,6 +593,10 @@ mod tests {
         assert_eq!(o.seed, Some(-3));
         assert!(o.snapshot.is_none() && o.panel_snapshot.is_none());
         assert!(matches!(parsed("--help"), Ok(None)));
+        let strands = |args| parsed(args).ok().flatten().map(|o| o.strands);
+        assert_eq!(strands(""), Some(Strands::Count(1)));
+        assert_eq!(strands("--strands 3"), Some(Strands::Count(3)));
+        assert_eq!(strands("--strands auto"), Some(Strands::Auto));
     }
 
     #[test]
@@ -532,6 +613,10 @@ mod tests {
             "--panel-snapshot",
             "--script",
             "--fast",
+            "--strands",
+            "--strands 0",
+            "--strands 17",
+            "--strands wide",
         ] {
             assert!(parsed(args).is_err(), "{args} should be refused");
         }

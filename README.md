@@ -29,6 +29,7 @@ This fills the main display; any key or click quits. Other options:
 | `--quad` | four mirrored strands (ep's `-q`) |
 | `--script FILE` | run an ep script instead of the built-in show (ep's `-a`) |
 | `--seed N` | fixed random seed (the original seeds from the clock) |
+| `--strands N`, `--strands auto` | N shows side by side, each with its own seed; `auto` fits as many as the screen is wide (three on a 32:9 display) |
 | `--snapshot FILE.png --frames N --size WxH` | render offscreen and save the picture after about N 60 Hz retraces (default 600, at 1280x1024) |
 
 With `--windowed` or `--controls` the show takes input as ep did: keys are

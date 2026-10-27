@@ -25,13 +25,13 @@ use objc2_foundation::{NSString, ns_string};
 use objc2_metal::{
     MTLBlendFactor, MTLBlitCommandEncoder, MTLBuffer, MTLCommandBuffer, MTLCommandEncoder,
     MTLCommandQueue, MTLCompareFunction, MTLCreateSystemDefaultDevice, MTLDepthStencilDescriptor,
-    MTLDepthStencilState, MTLDevice, MTLDrawable, MTLLibrary, MTLLoadAction, MTLOrigin,
-    MTLPixelFormat, MTLPrimitiveType, MTLRenderCommandEncoder, MTLRenderPassDescriptor,
+    MTLDepthStencilState, MTLDevice, MTLLibrary, MTLLoadAction, MTLOrigin, MTLPixelFormat,
+    MTLPrimitiveType, MTLRenderCommandEncoder, MTLRenderPassDescriptor,
     MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, MTLSize,
     MTLStorageMode, MTLStoreAction, MTLTexture, MTLTextureDescriptor, MTLTextureType,
     MTLTextureUsage,
 };
-use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
+use objc2_quartz_core::CAMetalLayer;
 
 /// Height of the original display; line widths and stipple pixels are
 /// expressed in its pixels.
@@ -80,6 +80,7 @@ struct Targets {
     depth_fresh: bool,
 }
 
+#[derive(Clone)]
 struct Pipelines {
     tri: [Retained<Pipeline>; 2], // [opaque, blended]
     line: [Retained<Pipeline>; 2],
@@ -123,14 +124,18 @@ impl std::fmt::Display for RendererError {
 
 impl std::error::Error for RendererError {}
 
-/// Renders frames into one `CAMetalLayer`. One per window/display.
+/// Renders the frames of one show into its own pair of colour buffers,
+/// which persist from frame to frame as an IrisGL visual's did.
 pub struct Renderer {
     device: Retained<Device>,
     queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
     pipelines: Pipelines,
     targets: Option<Targets>,
-    /// Index of the buffer currently displayed.
+    /// Index of the front buffer, the one ep's last swap displayed.
     front: usize,
+    /// Index of the buffer to show: the front one, or the back one while it
+    /// holds an in-between picture.
+    shown: usize,
     draw_buffer: DrawBuffer,
     projection: Projection,
     /// Every vertex of the frames being encoded, kept to reuse its allocation.
@@ -145,12 +150,21 @@ impl Renderer {
             .newCommandQueue()
             .ok_or(RendererError::Create("command queue"))?;
         let pipelines = Pipelines::new(&device)?;
-        Ok(Renderer {
+        Ok(Renderer::with(device, queue, pipelines))
+    }
+
+    fn with(
+        device: Retained<Device>,
+        queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
+        pipelines: Pipelines,
+    ) -> Self {
+        Renderer {
             device,
             queue,
             pipelines,
             targets: None,
             front: 0,
+            shown: 0,
             draw_buffer: DrawBuffer::Back,
             projection: Projection {
                 fovy_tenths: 300,
@@ -159,7 +173,17 @@ impl Renderer {
                 far: 1e6,
             },
             vertices: Vec::new(),
-        })
+        }
+    }
+
+    /// A renderer for another show, sharing this one's device, queue and
+    /// pipelines but with buffers of its own.
+    pub(crate) fn sibling(&self) -> Self {
+        Renderer::with(
+            self.device.clone(),
+            self.queue.clone(),
+            self.pipelines.clone(),
+        )
     }
 
     /// Configures a layer for this renderer: our device, BGRA8, and a
@@ -170,34 +194,74 @@ impl Renderer {
         layer.setFramebufferOnly(false);
     }
 
-    /// Executes the frames' operations in order, then shows the front buffer
-    /// on `layer`.
-    pub(crate) fn render(&mut self, layer: &CAMetalLayer, frames: &[Frame]) {
-        let size = layer.drawableSize();
-        let Some(cb) = self.encode(size.width as usize, size.height as usize, frames) else {
-            return;
-        };
-        self.present(&cb, layer, self.front);
-        cb.commit();
+    /// Executes the frames' operations in order at `width` x `height`; the
+    /// front buffer is then the one to show.
+    pub(crate) fn draw(&mut self, width: usize, height: usize, frames: &[Frame]) {
+        if let Some(cb) = self.encode(width, height, frames) {
+            cb.commit();
+            self.shown = self.front;
+        }
     }
 
-    /// Shows a picture that is not part of ep's own sequence (an in-between
-    /// from [`ep_core::Sim::frame_between`]): it is drawn into the back
-    /// buffer and presented from there, without a swap, so the next real
-    /// frame (which clears the back buffer first) finds the buffers as ep
-    /// left them.
-    pub(crate) fn render_between(&mut self, layer: &CAMetalLayer, frame: &Frame) {
-        let size = layer.drawableSize();
+    /// Draws a picture that is not part of ep's own sequence (an in-between
+    /// from [`ep_core::Sim::frame_between`]) into the back buffer, which is
+    /// then the one to show, without a swap: the next real frame (which
+    /// clears the back buffer first) finds the buffers as ep left them.
+    pub(crate) fn draw_between(&mut self, width: usize, height: usize, frame: &Frame) {
         let saved = std::mem::replace(&mut self.draw_buffer, DrawBuffer::Back);
-        let cb = self.encode(
-            size.width as usize,
-            size.height as usize,
-            std::slice::from_ref(frame),
-        );
+        let cb = self.encode(width, height, std::slice::from_ref(frame));
         self.draw_buffer = saved;
-        let Some(cb) = cb else { return };
-        self.present(&cb, layer, self.front ^ 1);
-        cb.commit();
+        if let Some(cb) = cb {
+            cb.commit();
+            self.shown = self.front ^ 1;
+        }
+    }
+
+    /// The size of the buffers, once something has been drawn.
+    pub(crate) fn size(&self) -> Option<(usize, usize)> {
+        self.targets.as_ref().map(|t| (t.width, t.height))
+    }
+
+    /// A command buffer on this renderer's queue, for presenting.
+    pub(crate) fn command_buffer(&self) -> Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>> {
+        self.queue.commandBuffer()
+    }
+
+    /// Copies the buffer to show into `dest` with its left edge at `x`.
+    /// `dest` must be at least as tall as the buffers and extend `size()`'s
+    /// width past `x`.
+    pub(crate) fn blit_into(
+        &self,
+        blit: &ProtocolObject<dyn MTLBlitCommandEncoder>,
+        dest: &Texture,
+        x: usize,
+    ) {
+        let Some(targets) = &self.targets else {
+            return;
+        };
+        let (width, height) = (targets.width, targets.height);
+        assert!(
+            x + width <= dest.width() && height <= dest.height(),
+            "blit_into: {width}x{height} at {x} is outside {}x{}",
+            dest.width(),
+            dest.height()
+        );
+        // SAFETY: the region lies inside both textures (checked above), which
+        // share a pixel format (`configure_layer`); the command buffer
+        // retains both until it completes.
+        unsafe {
+            blit.copyFromTexture_sourceSlice_sourceLevel_sourceOrigin_sourceSize_toTexture_destinationSlice_destinationLevel_destinationOrigin(
+                &targets.color[self.shown].resolved,
+                0,
+                0,
+                MTLOrigin { x: 0, y: 0, z: 0 },
+                MTLSize { width, height, depth: 1 },
+                dest,
+                0,
+                0,
+                MTLOrigin { x, y: 0, z: 0 },
+            );
+        }
     }
 
     /// Executes frames into a `width` x `height` target without a window and
@@ -488,30 +552,6 @@ impl Renderer {
         // SAFETY: `offset` came from `upload_vertices`, so it lies within `vbuf`.
         unsafe { enc.setVertexBuffer_offset_atIndex(Some(vbuf), offset, 0) };
         set_uniforms(enc, u);
-    }
-
-    /// Blits colour buffer `index` to the layer's next drawable and presents it.
-    fn present(
-        &self,
-        cb: &ProtocolObject<dyn MTLCommandBuffer>,
-        layer: &CAMetalLayer,
-        index: usize,
-    ) {
-        let Some(drawable) = layer.nextDrawable() else {
-            return;
-        };
-        let Some(blit) = cb.blitCommandEncoder() else {
-            return;
-        };
-        let targets = self.targets.as_ref().expect("encode created the targets");
-        let src = &targets.color[index].resolved;
-        // SAFETY: the targets were sized from this layer's drawable and share
-        // its pixel format (`configure_layer`); the command buffer retains
-        // both textures until it completes.
-        unsafe { blit.copyFromTexture_toTexture(src, &drawable.texture()) };
-        blit.endEncoding();
-        let drawable: &ProtocolObject<dyn MTLDrawable> = ProtocolObject::from_ref(&*drawable);
-        cb.presentDrawable(drawable);
     }
 }
 
