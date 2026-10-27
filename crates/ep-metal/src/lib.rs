@@ -178,8 +178,10 @@ impl Renderer {
     }
 
     /// A renderer for another show, sharing this one's device, queue and
-    /// pipelines but with buffers of its own.
-    pub(crate) fn sibling(&self) -> Self {
+    /// pipelines (so no shaders to compile) but with buffers of its own.
+    /// Work for the two goes through the one queue, in order.
+    #[must_use]
+    pub fn sibling(&self) -> Self {
         Renderer::with(
             self.device.clone(),
             self.queue.clone(),

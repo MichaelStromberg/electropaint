@@ -216,9 +216,10 @@ fn write_snapshot(snap: &Snapshot, opts: &Options) -> Result<(), Box<dyn std::er
     match opts.style {
         // Each strand is a picture of its own.
         Style::Classic => {
+            let first = Renderer::system_default()?;
             for index in 0..count {
                 let (x, width) = region(snap.width, count, index);
-                let mut renderer = Renderer::system_default()?;
+                let mut renderer = first.sibling();
                 paste(
                     &renderer.render_offscreen(width, snap.height, &frames(index))?,
                     x,
