@@ -186,7 +186,6 @@ pub(crate) struct PanelIvars {
     /// until it is closed.
     pinned: Cell<bool>,
     chan_rows: RefCell<Option<ChanRows>>,
-    timer: RefCell<Option<Retained<NSTimer>>>,
     /// Refreshes so far, for pacing the readouts.
     refreshes: Cell<u64>,
 }
@@ -248,7 +247,6 @@ impl PanelController {
             picker: RefCell::new(None),
             pinned: Cell::new(pinned),
             chan_rows: RefCell::new(None),
-            timer: RefCell::new(None),
             refreshes: Cell::new(0),
         });
         // SAFETY: NSObject's initialiser, once, on a fresh allocation.
@@ -318,8 +316,9 @@ impl PanelController {
         this.show_page(0, false);
         panel.center();
 
+        // The run loop retains the timer, which runs until the app quits.
         // SAFETY: `refresh:` is defined on this class and takes the timer.
-        let timer = unsafe {
+        let _ = unsafe {
             NSTimer::scheduledTimerWithTimeInterval_target_selector_userInfo_repeats(
                 1.0 / REFRESH_HZ,
                 &this,
@@ -328,7 +327,6 @@ impl PanelController {
                 true,
             )
         };
-        *this.ivars().timer.borrow_mut() = Some(timer);
         this.refresh();
         this
     }
@@ -444,7 +442,7 @@ impl PanelController {
                 ]
             })
             .collect();
-        let backdrop = into_view(&*narrow(grid(mtm, backdrop)));
+        let backdrop = into_view(&*grid(mtm, backdrop));
 
         let mode = NSSegmentedControl::new(mtm);
         mode.setSegmentCount(2);
@@ -490,7 +488,7 @@ impl PanelController {
                 row
             })
             .collect();
-        let g = narrow(grid(mtm, rows));
+        let g = grid(mtm, rows);
         g.setColumnSpacing(6.0);
         // Room between one toggle's key and the next toggle.
         for column in [1, 3] {
@@ -520,7 +518,7 @@ impl PanelController {
                 self.reset_button(mtm, id),
             ]);
         }
-        into_view(&*narrow(grid(mtm, rows)))
+        into_view(&*grid(mtm, rows))
     }
 
     /// One column per colour channel.
@@ -580,7 +578,7 @@ impl PanelController {
         rows.push(row("Dwell", &|i| {
             self.slider(mtm, 0.0, 1.0, Bind::Value(ids::dwell(i)), 90.0)
         }));
-        let g = narrow(grid(mtm, rows));
+        let g = grid(mtm, rows);
         g.setColumnSpacing(12.0);
         *self.ivars().chan_rows.borrow_mut() = Some(ChanRows {
             grid: g.clone(),
@@ -1051,15 +1049,6 @@ fn grid(mtm: MainThreadMarker, rows: Vec<Vec<Retained<NSView>>>) -> Retained<NSG
     g
 }
 
-/// Keeps a grid's columns at their natural width in a wider section.
-/// Otherwise the grid's default hugging ties with the stack view's pull
-/// towards its edges (both at low priority), and Auto Layout settles the tie
-/// differently from run to run, spreading the columns out.
-fn narrow(g: Retained<NSGridView>) -> Retained<NSGridView> {
-    g.setContentHuggingPriority_forOrientation(999.0, NSLayoutConstraintOrientation::Horizontal);
-    g
-}
-
 fn stack(
     mtm: MainThreadMarker,
     views: &[Retained<NSView>],
@@ -1076,11 +1065,11 @@ fn hstack(mtm: MainThreadMarker, views: &[Retained<NSView>]) -> Retained<NSView>
     into_view(&*s)
 }
 
-/// Makes `child` as wide as `parent` less `inset` on each side.
-fn fill_width(child: &NSView, parent: &NSView, inset: f64) {
+/// Makes `child` as wide as `parent`.
+fn fill_width(child: &NSView, parent: &NSView) {
     child
         .widthAnchor()
-        .constraintEqualToAnchor_constant(&parent.widthAnchor(), -2.0 * inset)
+        .constraintEqualToAnchor(&parent.widthAnchor())
         .setActive(true);
 }
 
@@ -1090,7 +1079,7 @@ fn page(mtm: MainThreadMarker, sections: &[Retained<NSView>]) -> Retained<NSView
     s.setAlignment(NSLayoutAttribute::Leading);
     s.setSpacing(18.0);
     for section in sections {
-        fill_width(section, &s, 0.0);
+        fill_width(section, &s);
     }
     into_view(&*s)
 }
@@ -1122,13 +1111,17 @@ fn section(
     );
     s.setAlignment(NSLayoutAttribute::Leading);
     s.setSpacing(6.0);
-    fill_width(&heading, &s, 0.0);
-    fill_width(&card, &s, 0.0);
+    fill_width(&heading, &s);
+    fill_width(&card, &s);
     into_view(&*s)
 }
 
 /// `content` on AppKit's group box background (which follows light and dark
 /// mode), at its natural width at the leading edge however wide the card is.
+/// Without the high hugging, the content's default hugging ties with the
+/// stack view's pull towards its edges (both at low priority), and Auto
+/// Layout settles the tie differently from run to run, spreading a grid's
+/// columns out.
 fn card(mtm: MainThreadMarker, content: Retained<NSView>) -> Retained<NSView> {
     content
         .setContentHuggingPriority_forOrientation(999.0, NSLayoutConstraintOrientation::Horizontal);

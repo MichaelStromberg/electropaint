@@ -163,7 +163,7 @@ impl Renderer {
 
     /// Configures a layer for this renderer: our device, BGRA8, and a
     /// drawable we can blit into.
-    pub fn configure_layer(&self, layer: &CAMetalLayer) {
+    pub(crate) fn configure_layer(&self, layer: &CAMetalLayer) {
         layer.setDevice(Some(&self.device));
         layer.setPixelFormat(COLOR_FORMAT);
         layer.setFramebufferOnly(false);
@@ -172,7 +172,7 @@ impl Renderer {
     /// Executes the frames' operations in order, then shows the front buffer
     /// on `layer`. With no frames it just re-presents the current picture,
     /// which is needed after a resize.
-    pub fn render(&mut self, layer: &CAMetalLayer, frames: &[Frame]) {
+    pub(crate) fn render(&mut self, layer: &CAMetalLayer, frames: &[Frame]) {
         let size = layer.drawableSize();
         let Some(cb) = self.encode(size.width as usize, size.height as usize, frames) else {
             return;
@@ -186,7 +186,7 @@ impl Renderer {
     /// buffer and presented from there, without a swap, so the next real
     /// frame (which clears the back buffer first) finds the buffers as ep
     /// left them.
-    pub fn render_between(&mut self, layer: &CAMetalLayer, frame: &Frame) {
+    pub(crate) fn render_between(&mut self, layer: &CAMetalLayer, frame: &Frame) {
         let size = layer.drawableSize();
         let saved = std::mem::replace(&mut self.draw_buffer, DrawBuffer::Back);
         let cb = self.encode(

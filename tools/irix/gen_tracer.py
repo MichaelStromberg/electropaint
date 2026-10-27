@@ -20,6 +20,8 @@ import json
 import re
 import sys
 
+if len(sys.argv) != 5:
+    sys.exit(__doc__)
 protos_path, imports_path, out_c, out_json = sys.argv[1:5]
 with open(imports_path) as f:
     imports = set(f.read().split())

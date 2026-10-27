@@ -4,11 +4,9 @@
 use ep_core::frame::Frame;
 use ep_core::{Options, Sim};
 
-use crate::Renderer;
-
 /// ep's only pacing was `swapbuffers`, which waits for vertical retrace on a
 /// 60 Hz SGI display: one swap per retrace.
-pub const TICK_HZ: f64 = 60.0;
+const TICK_HZ: f64 = 60.0;
 
 /// If a show falls this many retraces behind (e.g. after sleep), it skips
 /// ahead instead of fast-forwarding.
@@ -88,20 +86,6 @@ impl Show {
         match self.sim.frame_between(alpha.min(1.0) as f32) {
             Some(frame) => Picture::Between(frame),
             None => Picture::Same,
-        }
-    }
-
-    /// Advances to `time` and renders onto `layer`.
-    pub(crate) fn render(
-        &mut self,
-        renderer: &mut Renderer,
-        layer: &objc2_quartz_core::CAMetalLayer,
-        time: f64,
-    ) {
-        match self.picture(time) {
-            Picture::Ticks(frames) => renderer.render(layer, &frames),
-            Picture::Between(frame) => renderer.render_between(layer, &frame),
-            Picture::Same => {}
         }
     }
 

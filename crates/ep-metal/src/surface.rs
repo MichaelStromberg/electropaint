@@ -6,7 +6,7 @@ use objc2::rc::Retained;
 use objc2_foundation::NSSize;
 use objc2_quartz_core::CAMetalLayer;
 
-use crate::show::Show;
+use crate::show::{Picture, Show};
 use crate::{Renderer, RendererError};
 
 pub struct Surface {
@@ -40,6 +40,10 @@ impl Surface {
 
     /// Advances `show` to `time` seconds and renders what it has.
     pub fn render(&mut self, show: &mut Show, time: f64) {
-        show.render(&mut self.renderer, &self.layer, time);
+        match show.picture(time) {
+            Picture::Ticks(frames) => self.renderer.render(&self.layer, &frames),
+            Picture::Between(frame) => self.renderer.render_between(&self.layer, &frame),
+            Picture::Same => {}
+        }
     }
 }
