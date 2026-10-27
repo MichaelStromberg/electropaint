@@ -102,8 +102,8 @@ The IRIX 6.5 build (1998) has the same strings, script and code paths as the
 with `eptrace_ops.json`, runs the simulation with the same flags, script and
 seed, and compares the two call streams frame by frame. The integration
 tests (`cargo test -p ep-core --test traces`) do this for every trace and
-skip any that are missing; for one trace at a time, with the first
-divergence shown in context:
+skip any that are missing (`EP_REQUIRE_TRACES=1` makes that a failure). For
+one trace at a time, with the first divergence shown in context:
 
     cargo run -p ep-core --example trace_diff -- re/tracer/ep_v_zl.trace \
         --script re/scripts/mello-zl.ep [--quad] [--saver] [--frames N]
@@ -113,8 +113,10 @@ lighting, buffer, pattern and projection calls, `swapbuffers`), the five
 channel swatches `mapcolor(0x300..0x304)`, and `srand48`/`drand48` with
 the drawn values. Window management, event, query and panel calls are
 skipped, as are the panel library's own `defpattern(1, …)` and its colour
-map. Integers (all `rotate` angles included) must match exactly and floats
-to 1e-5 relative; in practice every float matches bit for bit. Where the
+map. Integers (all `rotate` angles included) and floats must match exactly:
+the comparison lets floats within 1e-5 relative through but counts those
+whose bits differ, and the tests require that count to be zero (`trace_diff`
+prints it, with the largest relative error). Where the
 original passes uninitialised stack memory (the ribbon material's ambient
 factor), the simulation logs NaN and the comparison accepts any value.
 

@@ -1,6 +1,6 @@
 [package]
 name = "electropaint"
-description = "SGI electropaint for macOS: fullscreen on every display"
+description = "SGI electropaint for macOS: fullscreen, windowed or with its control panel"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

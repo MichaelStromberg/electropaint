@@ -73,7 +73,8 @@ the decoder starts a new frame at each `swapbuffers`). Confirmed:
   frames) **no** `lmbind`, `n3f`, `bgntmesh`, `zbuffer`/`zclear`,
   `frontbuffer` or `setpattern` call appears. Lighting, z-buffer, ribbons,
   smear and fade are reached only through the panel toggles (light "L",
-  z-buf "Z", ribbons "R", smear "Q", fade "W"; actuator ids per the panel spec,
+  z-buf "Z", ribbons "R", smear "Q"; the RGB build never adds the fade button,
+  so fade has no key and is reached by a script; actuator ids per the panel spec,
   e.g. outline = 18, full = 29). The variant traces in §0.1 cover them.
 
 ### 0.1 Variant traces: lit, z-buffer, ribbon, smear, fade, background, triangle and fat-line paths
@@ -113,7 +114,8 @@ Resolved by these traces:
   ribbons are therefore drawn in the background colour and are invisible. See
   §6 for the port rule.
 * **`fadebackground` and `color()` in RGB mode.** Confirmed: `color(bkg)` is
-  issued (here `color(0)`). What the hardware does with it is still open (§11.1).
+  issued (here `color(0)`). An Indy screen grab settled what the hardware does
+  with it (§8.1).
 * Quad ribbons do issue 4 `bgntmesh` per 1 `endtmesh`. The rendering result is
   still open (§11.3).
 
@@ -933,9 +935,9 @@ images: `TX_MINFILTER = TX_MIPMAP_BILINEAR`, `TX_MAGFILTER = TX_BILINEAR`. For
 
 ## 11. Open questions (what would resolve each)
 
-1. **RGB-mode `color()` in `fadebackground`.** Which colour does the stippled
-   fade clear use? Settle with a frame capture or a GL trace of `clear` on
-   hardware in smear+fade mode.
+1. ~~**RGB-mode `color()` in `fadebackground`.**~~ Resolved by an Indy screen
+   grab (§8.1): the index replaces the low 16 bits of the packed colour. Other
+   SGI graphics boards may differ.
 2. **Lit ribbons.** Mostly resolved (§0.1, §6). The garbage values are
    measured, and in a ribbon-only session lighting is disabled, so ribbons take
    the current colour (`bkgRGBA`). Still open: the smear-on case after
@@ -953,11 +955,8 @@ images: `TX_MINFILTER = TX_MIPMAP_BILINEAR`, `TX_MAGFILTER = TX_BILINEAR`. For
    only for the fade's phase pattern).
 8. ~~No trace coverage of the lit, z-buffer, ribbon, smear and fade paths.~~
    Done (§0.1): the call sequences match. The open items left are only what
-   calls cannot show: items 1, 3, 4, 5 and the smear-on lit-ribbon case in §6.
-   Item 1 now has its trace answer: `color(0)` **is** issued in RGB mode. Its
-   hardware effect needs a framebuffer capture (for example, read back pixels
-   after one `smearfade` step on real hardware or in an emulator with a
-   faithful RGB `color()`).
+   calls cannot show: items 3, 4, 5 and the smear-on lit-ribbon case in §6.
+   (Item 1 needed a framebuffer capture too, and has since had one.)
 9. Quad-mode ribbons crashed Indy libgl's software tmesh rasteriser at
    frame 189 (`_alpha_span_zb` ← `__triang_al_zb` ← `_tmesh_doit0`). This may be
    related to the unbalanced `bgntmesh`. It cannot be emulated meaningfully;

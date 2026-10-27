@@ -23,11 +23,11 @@ This fills the main display; any key or click quits. Other options:
 |---|---|
 | `--all-displays` | one independent show per display |
 | `--windowed` | a normal window; input goes to electropaint (below) |
-| `--controls`, `-c` | the control panel, kept open |
+| `--controls`, `-c` | the control panel, kept open (ep's `-c` also stopped the script; this keeps it running) |
 | `--quad` | four mirrored strands (ep's `-q`) |
 | `--script FILE` | run an ep script instead of the built-in show (ep's `-a`) |
 | `--seed N` | fixed random seed (the original seeds from the clock) |
-| `--snapshot FILE.png --frames N --size WxH` | render offscreen and save a picture |
+| `--snapshot FILE.png --frames N --size WxH` | render offscreen and save the picture after N 60 Hz retraces (default 600, at 1280x1024) |
 
 With `--windowed` or `--controls` the show takes input as ep did: keys are
 ep's shortcuts (listed under [Controls](#controls)) and Esc quits. A click on
@@ -159,6 +159,10 @@ recordings skip themselves when `re/` is absent.
 ## Tests
 
     cargo test --release --workspace
+
+The trace tests compare the simulation with every IRIX recording in `re/`
+and skip the ones that are missing. Set `EP_REQUIRE_TRACES=1` to make a
+missing recording a failure instead, so a run that skipped them can't pass.
 
 ## History
 

@@ -170,8 +170,7 @@ impl Renderer {
     }
 
     /// Executes the frames' operations in order, then shows the front buffer
-    /// on `layer`. With no frames it just re-presents the current picture,
-    /// which is needed after a resize.
+    /// on `layer`.
     pub(crate) fn render(&mut self, layer: &CAMetalLayer, frames: &[Frame]) {
         let size = layer.drawableSize();
         let Some(cb) = self.encode(size.width as usize, size.height as usize, frames) else {
