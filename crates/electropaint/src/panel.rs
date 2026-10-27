@@ -283,8 +283,7 @@ impl PanelController {
                 self.button(mtm, "centre", Bind::PuckCentre),
             ],
         );
-        let credit = label(mtm, "...by David Tristram");
-        vstack(mtm, &[toggles, buttons, sliders, puck, credit])
+        vstack(mtm, &[toggles, buttons, sliders, puck])
     }
 
     fn colours_tab(&self, mtm: MainThreadMarker) -> Retained<NSView> {
