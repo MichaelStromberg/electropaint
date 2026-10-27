@@ -12,13 +12,16 @@ version=$(cargo pkgid -p ep-saver)
 version=${version##*[#@]}
 [ -n "$version" ] && [ "$release" != /release ] || { echo "make-saver: cargo metadata or pkgid failed" >&2; exit 1; }
 
-# saver NAME EXECUTABLE BUNDLE-ID PRINCIPAL-CLASS [CARGO-FEATURES]
+# saver NAME EXECUTABLE BUNDLE-ID PRINCIPAL-CLASS THUMBNAIL [CARGO-FEATURES]
 saver() {
-	name=$1 exe=$2 id=$3 class=$4 features=${5:-}
+	name=$1 exe=$2 id=$3 class=$4 thumbnail=$5 features=${6:-}
 	cargo build --release -p ep-saver ${features:+--features "$features"}
 	bundle="target/saver/$name.saver"
 	rm -rf "$bundle"
-	mkdir -p "$bundle/Contents/MacOS"
+	mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
+	# What System Settings shows for the saver.
+	cp "assets/thumbnail-$thumbnail.png" "$bundle/Contents/Resources/thumbnail.png"
+	cp "assets/thumbnail-$thumbnail@2x.png" "$bundle/Contents/Resources/thumbnail@2x.png"
 	cp "$release/libep_saver.dylib" "$bundle/Contents/MacOS/$exe"
 	# The build just made, not another (another cargo run can replace it).
 	grep -aq "$class" "$bundle/Contents/MacOS/$exe" || { echo "make-saver: $exe lacks $class" >&2; exit 1; }
@@ -46,5 +49,5 @@ PLIST
 	echo "built $bundle"
 }
 
-saver electropaint electropaint local.electropaint.saver EPSaverView
-saver "electropaint Remastered" electropaint-remastered local.electropaint.remastered.saver EPRemasteredSaverView remastered
+saver electropaint electropaint io.github.michaelstromberg.electropaint.saver EPSaverView classic
+saver "electropaint Remastered" electropaint-remastered io.github.michaelstromberg.electropaint.remastered-saver EPRemasteredSaverView remastered remastered
