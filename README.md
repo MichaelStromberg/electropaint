@@ -163,8 +163,12 @@ lightness.
 
     ./scripts/make-saver.sh
 
-builds `target/saver/electropaint.saver`. Double-click it to install, or copy
-it into `~/Library/Screen Savers`.
+builds two screen savers in `target/saver/`: `electropaint.saver`, as ep drew
+it, and `electropaint Remastered.saver`, which draws in the
+[remastered](#remastered) style with as many strands as fit each display.
+Double-click one to install it, or copy them into `~/Library/Screen Savers`.
+Both then appear in System Settings, so you choose between them as between
+any two savers.
 
 ## Layout
 
