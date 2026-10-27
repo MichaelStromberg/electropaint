@@ -104,17 +104,7 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Options>, Stri
             "--seed" => opts.seed = Some(number(args.next(), "--seed")?),
             "--snapshot" => snapshot = Some(args.next().ok_or("--snapshot needs a file")?),
             "--frames" => frames = Some(number(args.next(), "--frames")?),
-            "--strands" => {
-                let v = args.next().unwrap_or_default();
-                opts.strands = Some(if v == "auto" {
-                    Strands::Auto
-                } else {
-                    match v.parse() {
-                        Ok(n @ 1..=MAX_STRANDS) => Strands::Count(n),
-                        _ => return Err(format!("--strands takes auto or 1 to {MAX_STRANDS}")),
-                    }
-                });
-            }
+            "--strands" => opts.strands = Some(strands(args.next().as_deref())?),
             "--style" => {
                 opts.style = match args.next().as_deref() {
                     Some("classic") => Style::Classic,
@@ -122,42 +112,12 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Options>, Stri
                     _ => return Err("--style takes classic or remastered".into()),
                 };
             }
-            "--size" => {
-                let v = args.next().unwrap_or_default();
-                size = Some(
-                    v.split_once('x')
-                        .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
-                        .filter(|&(w, h)| w > 0 && h > 0)
-                        .ok_or("--size takes WIDTHxHEIGHT, both above 0")?,
-                );
-            }
+            "--size" => size = Some(picture_size(args.next().as_deref())?),
             "-h" | "--help" => return Ok(None),
             other => return Err(format!("unknown option {other}")),
         }
     }
-    if opts.windowed && opts.all_displays {
-        return Err("--windowed and --all-displays don't go together".into());
-    }
-    match snapshot {
-        Some(path) => {
-            if opts.windowed || opts.all_displays || opts.controls || opts.panel_snapshot.is_some()
-            {
-                return Err("--snapshot draws offscreen, with no windows or control panel".into());
-            }
-            let (width, height) = size.unwrap_or((1280, 1024));
-            opts.snapshot = Some(Snapshot {
-                path,
-                frames: frames.unwrap_or(600),
-                width,
-                height,
-            });
-        }
-        None if frames.is_some() || size.is_some() => {
-            return Err("--frames and --size go with --snapshot".into());
-        }
-        None => {}
-    }
-    Ok(Some(opts))
+    finish(opts, snapshot, frames, size).map(Some)
 }
 
 const USAGE: &str = "usage: electropaint [--windowed | --all-displays] [-c | --controls] [--style classic|remastered] [-q | --quad] [--script FILE] [--seed N] [--strands N|auto]
@@ -182,6 +142,58 @@ control panel (--controls keeps it up). Esc quits.
 
 The show steps at the original's 60 Hz; faster displays get in-between
 pictures on the refreshes between steps.";
+
+/// `--strands`' value: `auto` or a count.
+fn strands(v: Option<&str>) -> Result<Strands, String> {
+    match v {
+        Some("auto") => Ok(Strands::Auto),
+        v => match v.map(str::parse) {
+            Some(Ok(n @ 1..=MAX_STRANDS)) => Ok(Strands::Count(n)),
+            _ => Err(format!("--strands takes auto or 1 to {MAX_STRANDS}")),
+        },
+    }
+}
+
+/// `--size`'s value: WIDTHxHEIGHT.
+fn picture_size(v: Option<&str>) -> Result<(usize, usize), String> {
+    v.and_then(|v| v.split_once('x'))
+        .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
+        .filter(|&(w, h)| w > 0 && h > 0)
+        .ok_or_else(|| "--size takes WIDTHxHEIGHT, both above 0".into())
+}
+
+/// Checks the options go together, and fills in the snapshot from its
+/// file, steps and size (given in any order).
+fn finish(
+    mut opts: Options,
+    snapshot: Option<String>,
+    frames: Option<u64>,
+    size: Option<(usize, usize)>,
+) -> Result<Options, String> {
+    if opts.windowed && opts.all_displays {
+        return Err("--windowed and --all-displays don't go together".into());
+    }
+    match snapshot {
+        Some(path) => {
+            if opts.windowed || opts.all_displays || opts.controls || opts.panel_snapshot.is_some()
+            {
+                return Err("--snapshot draws offscreen, with no windows or control panel".into());
+            }
+            let (width, height) = size.unwrap_or((1280, 1024));
+            opts.snapshot = Some(Snapshot {
+                path,
+                frames: frames.unwrap_or(600),
+                width,
+                height,
+            });
+        }
+        None if frames.is_some() || size.is_some() => {
+            return Err("--frames and --size go with --snapshot".into());
+        }
+        None => {}
+    }
+    Ok(opts)
+}
 
 /// An option's numeric value, if it has one.
 fn number<T: std::str::FromStr>(v: Option<String>, what: &str) -> Result<T, String> {
