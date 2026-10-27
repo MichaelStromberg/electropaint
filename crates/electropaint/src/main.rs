@@ -223,7 +223,7 @@ impl ShowView {
         // SAFETY: NSView's designated initialiser, once, on a fresh allocation.
         let view: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
 
-        let surface = Surface::new().expect("no Metal device");
+        let surface = Surface::new().unwrap_or_else(|e| panic!("{e}"));
         // Layer-hosting view: set the layer before asking for one.
         view.setLayer(Some(surface.layer()));
         view.setWantsLayer(true);
@@ -388,9 +388,10 @@ fn main() {
     let interactive = opts.windowed || opts.controls;
     let (windows, panel_show) = open_show_windows(mtm, &opts, interactive);
     let level = if opts.windowed { 0 } else { SHOW_LEVEL };
-    let _panel = interactive.then(|| {
-        panel::PanelController::new(mtm, panel_show.clone().unwrap(), opts.controls, level)
-    });
+    // With no display there is no show, and so no panel either.
+    let _panel = panel_show
+        .filter(|_| interactive)
+        .map(|show| panel::PanelController::new(mtm, show, opts.controls, level));
 
     #[allow(deprecated)]
     app.activateIgnoringOtherApps(true);

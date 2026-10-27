@@ -7,8 +7,8 @@ use objc2_foundation::NSSize;
 use objc2_metal::MTLCreateSystemDefaultDevice;
 use objc2_quartz_core::CAMetalLayer;
 
-use crate::Renderer;
 use crate::show::Show;
+use crate::{Renderer, RendererError};
 
 pub struct Surface {
     renderer: Renderer,
@@ -16,14 +16,13 @@ pub struct Surface {
 }
 
 impl Surface {
-    /// A layer set up for a renderer on the system's default Metal device,
-    /// or `None` if there is no Metal device.
-    pub fn new() -> Option<Self> {
-        let device = MTLCreateSystemDefaultDevice()?;
-        let renderer = Renderer::new(device);
+    /// A layer set up for a renderer on the system's default Metal device.
+    pub fn new() -> Result<Self, RendererError> {
+        let device = MTLCreateSystemDefaultDevice().ok_or(RendererError::NoDevice)?;
+        let renderer = Renderer::try_new(device)?;
         let layer = CAMetalLayer::new();
         renderer.configure_layer(&layer);
-        Some(Surface { renderer, layer })
+        Ok(Surface { renderer, layer })
     }
 
     /// The layer, for the hosting view to adopt.

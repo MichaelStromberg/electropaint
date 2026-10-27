@@ -77,7 +77,27 @@ define_class!(
 
 impl SaverView {
     fn setup(&self) {
-        let surface = Surface::new().expect("no Metal device");
+        match Surface::new() {
+            Ok(surface) => self.start(surface),
+            // The view stays black: a panic here would take down the host
+            // (System Settings or the screen saver process).
+            Err(e) => eprintln!("electropaint: {e}"),
+        }
+
+        // SAFETY: `screensaverWillStop:` is defined on this class and takes the
+        // notification.
+        unsafe {
+            NSDistributedNotificationCenter::defaultCenter().addObserver_selector_name_object(
+                self as &AnyObject,
+                sel!(screensaverWillStop:),
+                Some(ns_string!("com.apple.screensaver.willstop")),
+                None,
+            );
+        }
+    }
+
+    /// Adopts `surface`'s layer and runs a show on it from the display link.
+    fn start(&self, surface: Surface) {
         self.setLayer(Some(surface.layer()));
         self.setWantsLayer(true);
 
@@ -92,17 +112,6 @@ impl SaverView {
             surface,
             _link: link,
         });
-
-        // SAFETY: `screensaverWillStop:` is defined on this class and takes the
-        // notification.
-        unsafe {
-            NSDistributedNotificationCenter::defaultCenter().addObserver_selector_name_object(
-                self as &AnyObject,
-                sel!(screensaverWillStop:),
-                Some(ns_string!("com.apple.screensaver.willstop")),
-                None,
-            );
-        }
     }
 
     fn advance(&self, time: f64) {

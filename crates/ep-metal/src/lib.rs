@@ -86,6 +86,29 @@ struct Pipelines {
     depth_overwrite: Retained<DepthState>,
 }
 
+/// Why a [`Renderer`] (or a [`surface::Surface`]) could not be set up.
+#[derive(Debug)]
+pub enum RendererError {
+    NoDevice,
+    /// Metal could not create the named object.
+    Create(&'static str),
+    ShaderCompile(String),
+    Pipeline(String),
+}
+
+impl std::fmt::Display for RendererError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RendererError::NoDevice => f.write_str("no Metal device"),
+            RendererError::Create(what) => f.write_str(what),
+            RendererError::ShaderCompile(e) => write!(f, "shader compile failed: {e}"),
+            RendererError::Pipeline(e) => write!(f, "pipeline: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for RendererError {}
+
 /// Renders frames into one `CAMetalLayer`. One per window/display.
 pub struct Renderer {
     device: Retained<Device>,
@@ -101,10 +124,18 @@ pub struct Renderer {
 }
 
 impl Renderer {
+    /// A renderer on `device`. Panics if Metal cannot set it up; see
+    /// [`Renderer::try_new`].
     pub fn new(device: Retained<Device>) -> Self {
-        let queue = device.newCommandQueue().expect("command queue");
-        let pipelines = Pipelines::new(&device);
-        Renderer {
+        Self::try_new(device).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    pub fn try_new(device: Retained<Device>) -> Result<Self, RendererError> {
+        let queue = device
+            .newCommandQueue()
+            .ok_or(RendererError::Create("command queue"))?;
+        let pipelines = Pipelines::new(&device)?;
+        Ok(Renderer {
             device,
             queue,
             pipelines,
@@ -118,7 +149,7 @@ impl Renderer {
                 far: 1e6,
             },
             vertices: Vec::new(),
-        }
+        })
     }
 
     /// Configures a layer for this renderer: our device, BGRA8, and a
@@ -527,17 +558,23 @@ fn texture(
 }
 
 impl Pipelines {
-    fn new(device: &Device) -> Self {
+    fn new(device: &Device) -> Result<Self, RendererError> {
         let source = NSString::from_str(include_str!("shaders.metal"));
         let library = device
             .newLibraryWithSource_options_error(&source, None)
-            .unwrap_or_else(|e| panic!("shader compile failed: {e}"));
-        let func = |name: &NSString| library.newFunctionWithName(name).expect("shader function");
+            .map_err(|e| RendererError::ShaderCompile(e.to_string()))?;
+        let func = |name: &NSString| {
+            library
+                .newFunctionWithName(name)
+                .ok_or(RendererError::Create("shader function"))
+        };
 
         let pipeline = |vertex: &NSString, fragment: &NSString, blend: bool, color_writes: bool| {
             let desc = MTLRenderPipelineDescriptor::new();
-            desc.setVertexFunction(Some(&func(vertex)));
-            desc.setFragmentFunction(Some(&func(fragment)));
+            let vertex = func(vertex)?;
+            desc.setVertexFunction(Some(&vertex));
+            let fragment = func(fragment)?;
+            desc.setFragmentFunction(Some(&fragment));
             desc.setRasterSampleCount(SAMPLES);
             desc.setDepthAttachmentPixelFormat(DEPTH_FORMAT);
             // SAFETY: attachment 0 always exists (Metal supports at least eight).
@@ -556,7 +593,7 @@ impl Pipelines {
             }
             device
                 .newRenderPipelineStateWithDescriptor_error(&desc)
-                .unwrap_or_else(|e| panic!("pipeline: {e}"))
+                .map_err(|e| RendererError::Pipeline(e.to_string()))
         };
         let depth = |compare: MTLCompareFunction, write: bool| {
             let desc = MTLDepthStencilDescriptor::new();
@@ -564,7 +601,7 @@ impl Pipelines {
             desc.setDepthWriteEnabled(write);
             device
                 .newDepthStencilStateWithDescriptor(&desc)
-                .expect("depth state")
+                .ok_or(RendererError::Create("depth state"))
         };
         let (tri, line, color) = (
             ns_string!("tri_vertex"),
@@ -576,20 +613,20 @@ impl Pipelines {
             ns_string!("fill_fragment"),
             ns_string!("zclear_fragment"),
         );
-        Pipelines {
+        Ok(Pipelines {
             tri: [
-                pipeline(tri, color, false, true),
-                pipeline(tri, color, true, true),
+                pipeline(tri, color, false, true)?,
+                pipeline(tri, color, true, true)?,
             ],
             line: [
-                pipeline(line, color, false, true),
-                pipeline(line, color, true, true),
+                pipeline(line, color, false, true)?,
+                pipeline(line, color, true, true)?,
             ],
-            fill: pipeline(fill_v, fill_f, false, true),
-            zclear: pipeline(fill_v, zclear_f, false, false),
-            depth_test: depth(MTLCompareFunction::LessEqual, true),
-            depth_off: depth(MTLCompareFunction::Always, false),
-            depth_overwrite: depth(MTLCompareFunction::Always, true),
-        }
+            fill: pipeline(fill_v, fill_f, false, true)?,
+            zclear: pipeline(fill_v, zclear_f, false, false)?,
+            depth_test: depth(MTLCompareFunction::LessEqual, true)?,
+            depth_off: depth(MTLCompareFunction::Always, false)?,
+            depth_overwrite: depth(MTLCompareFunction::Always, true)?,
+        })
     }
 }
