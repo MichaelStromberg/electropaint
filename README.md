@@ -57,7 +57,7 @@ ep, except where noted below.
 - Smear leaves trails that fade over a second or two, and fade makes
   them fade faster; smooth draws as plain smear. Lighting and the z-buffer
   are always on, so lit ribbons stay visible (in ep they took the
-  background colour), and the tiles are always opaque: channel Opacity,
+  background colour), and filled tiles are always opaque: channel Opacity,
   Ambient and Shininess have no effect.
 - It draws in floating point with 4x multisampling and bloom. On an XDR
   or HDR display the highlights go brighter than SDR white.

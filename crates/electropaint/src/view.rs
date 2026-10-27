@@ -82,7 +82,7 @@ define_class!(
         }
 
         /// Closing the show (only `--windowed` has a close button) quits:
-        /// with no window and no menu bar there would be no way left to.
+        /// without it the app would have nothing left to show.
         #[unsafe(method(close))]
         fn close(&self) {
             // SAFETY: NSWindow's own `close`, which overrides must call.

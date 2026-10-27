@@ -46,7 +46,6 @@ CT = {  # normalized type -> (C type, logger)
 }
 
 
-
 def parse_protos(lines):
     """Flat prototypes ("ret name(type, type)") -> {name: (ret, [param types])}."""
     protos = {}
@@ -236,7 +235,6 @@ def wrap(out, ops, op, name, proto):
         body.append("\treturn r;")
     body.append("}")
     out.append("\n".join(body) + "\n")
-
 
 
 def main(argv):

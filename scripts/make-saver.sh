@@ -10,7 +10,7 @@ meta=$(cargo metadata --format-version 1 --no-deps)
 release=$(printf '%s' "$meta" | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')/release
 version=$(cargo pkgid -p ep-saver)
 version=${version##*[#@]}
-[ -n "$version" ] && [ "$release" != /release ] || { echo "make-saver: cargo metadata failed" >&2; exit 1; }
+[ -n "$version" ] && [ "$release" != /release ] || { echo "make-saver: cargo metadata or pkgid failed" >&2; exit 1; }
 
 # saver NAME EXECUTABLE BUNDLE-ID PRINCIPAL-CLASS [CARGO-FEATURES]
 saver() {

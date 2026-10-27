@@ -173,6 +173,9 @@ fn finish(
     if opts.windowed && opts.all_displays {
         return Err("--windowed and --all-displays don't go together".into());
     }
+    if opts.panel_snapshot.is_some() && (opts.windowed || opts.all_displays || opts.controls) {
+        return Err("--panel-snapshot draws offscreen, with no windows".into());
+    }
     match snapshot {
         Some(path) => {
             if opts.windowed || opts.all_displays || opts.controls || opts.panel_snapshot.is_some()
@@ -262,6 +265,7 @@ mod tests {
             "--size 64x32",
             "--snapshot a.png --windowed",
             "--snapshot a.png --controls",
+            "--panel-snapshot p --windowed",
             "--strands",
             "--strands 0",
             "--strands 17",

@@ -103,7 +103,7 @@ def main():
     lo, hi = a.frames
     try:
         dump(ops, data, lo, hi, a.summary)
-    except ValueError as e:
+    except (ValueError, struct.error) as e:
         sys.exit(f"{a.trace}: {e}")
 
 
