@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use ep_core::colour::hls_to_rgb;
 use ep_core::{Sim, ids};
+use ep_metal::surface::Style;
 use objc2::rc::Retained;
 use objc2::{DefinedClass, MainThreadMarker};
 use objc2_app_kit::{
@@ -83,6 +84,17 @@ impl PanelController {
             }
             return;
         }
+        if matches!(bind, Bind::Style) {
+            if let Some(s) = view.downcast_ref::<NSSegmentedControl>() {
+                let style = if s.selectedSegment() == 1 {
+                    Style::Remastered
+                } else {
+                    Style::Classic
+                };
+                self.ivars().style.set(style);
+            }
+            return;
+        }
         let mut show = self.ivars().show.borrow_mut();
         self.send(show.sim_mut(), bind, &view);
     }
@@ -144,7 +156,7 @@ impl PanelController {
                     });
                 }
             }
-            Bind::Page | Bind::Readout(_) | Bind::Swatch(_) => {}
+            Bind::Page | Bind::Style | Bind::Readout(_) | Bind::Swatch(_) => {}
         }
     }
 
@@ -214,6 +226,7 @@ impl PanelController {
             ],
             Bind::Puck(axis) => [self.ivars().puck.get()[axis], 0.0],
             Bind::ChanMode => [flag(sim.controls().hue_mode), 0.0],
+            Bind::Style => [flag(self.ivars().style.get() == Style::Remastered), 0.0],
             Bind::PuckCentre | Bind::Page => [0.0; 2],
         }
     }
@@ -240,6 +253,11 @@ fn show_control(c: &Control, state: [f32; 2]) {
             if let Some(s) = view.downcast_ref::<NSSegmentedControl>() {
                 // Hue mode shows segment 0, lightness segment 1.
                 s.setSelectedSegment(isize::from(a == 0.0));
+            }
+        }
+        Bind::Style => {
+            if let Some(s) = view.downcast_ref::<NSSegmentedControl>() {
+                s.setSelectedSegment(isize::from(a != 0.0));
             }
         }
         Bind::PuckCentre | Bind::Page => {}

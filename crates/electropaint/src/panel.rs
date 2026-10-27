@@ -21,6 +21,7 @@ use std::time::Instant;
 
 use ep_core::ids;
 use ep_metal::show::Show;
+use ep_metal::surface::Style;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -55,6 +56,8 @@ enum Bind {
     ChanMode,
     /// Which page of the panel is showing (the panel's own state).
     Page,
+    /// How the show is drawn, classic or remastered (not the simulation's).
+    Style,
 }
 
 struct Control {
@@ -85,6 +88,8 @@ struct Chrome {
 
 pub(crate) struct PanelIvars {
     show: Rc<RefCell<Show>>,
+    /// The style the show windows draw in.
+    style: Rc<Cell<Style>>,
     controls: RefCell<Vec<Control>>,
     puck: Cell<[f32; 2]>,
     chrome: OnceCell<Chrome>,
@@ -135,15 +140,18 @@ define_class!(
 impl PanelController {
     /// Builds the panel. It appears when ep's panels would (outside full
     /// screen), or straight away if `pinned`. `level` is the window level of
-    /// the show, which the panel must float above.
+    /// the show, which the panel must float above; `style` is the drawing
+    /// style the show windows follow.
     pub(crate) fn new(
         mtm: MainThreadMarker,
         show: Rc<RefCell<Show>>,
+        style: Rc<Cell<Style>>,
         pinned: bool,
         level: isize,
     ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(PanelIvars {
             show,
+            style,
             controls: RefCell::new(Vec::new()),
             puck: Cell::new([0.0; 2]),
             chrome: OnceCell::new(),

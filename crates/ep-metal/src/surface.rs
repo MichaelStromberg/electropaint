@@ -12,8 +12,19 @@ use objc2_foundation::NSSize;
 use objc2_metal::{MTLCommandBuffer, MTLCommandEncoder, MTLDrawable};
 use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
 
+use crate::remastered::Remastered;
 use crate::show::{Picture, Show};
 use crate::{Renderer, RendererError};
+
+/// How the shows are drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Style {
+    /// As ep drew them on an SGI RGB visual.
+    #[default]
+    Classic,
+    /// Iridescent chrome in high dynamic range ([`Remastered`]).
+    Remastered,
+}
 
 /// The aspect ratio of ep's own screen (1280x1024): `auto_strands` fits
 /// strands of about this shape across a view.
@@ -36,21 +47,72 @@ pub fn region(width: usize, count: usize, index: usize) -> (usize, usize) {
 }
 
 pub struct Surface {
-    /// One per strand; the first made the others (`Renderer::sibling`).
+    style: Style,
+    /// For `Style::Classic`, one per strand; the first made the others
+    /// (`Renderer::sibling`). Empty until that style is first used.
     renderers: Vec<Renderer>,
+    /// For `Style::Remastered`, once that style is first used.
+    remastered: Option<Remastered>,
     layer: Retained<CAMetalLayer>,
+    /// How far above SDR white the display can show (1 without EDR).
+    headroom: f64,
 }
 
 impl Surface {
-    /// A layer set up for a renderer on the system's default Metal device.
-    pub fn new() -> Result<Self, RendererError> {
-        let renderer = Renderer::system_default()?;
-        let layer = CAMetalLayer::new();
-        renderer.configure_layer(&layer);
-        Ok(Surface {
-            renderers: vec![renderer],
-            layer,
-        })
+    /// A layer set up for a renderer in `style` on the system's default
+    /// Metal device.
+    pub fn new(style: Style) -> Result<Self, RendererError> {
+        let mut surface = Surface {
+            style,
+            renderers: Vec::new(),
+            remastered: None,
+            layer: CAMetalLayer::new(),
+            headroom: 1.0,
+        };
+        surface.prepare(style)?;
+        Ok(surface)
+    }
+
+    /// Draws in `style` from now on. The shows carry on as they were.
+    ///
+    /// # Errors
+    ///
+    /// If Metal can't set up that style's renderer; the style is unchanged.
+    pub fn set_style(&mut self, style: Style) -> Result<(), RendererError> {
+        if style != self.style {
+            self.prepare(style)?;
+            self.style = style;
+        }
+        Ok(())
+    }
+
+    /// Makes `style`'s renderer if there isn't one and sets the layer up for it.
+    fn prepare(&mut self, style: Style) -> Result<(), RendererError> {
+        match style {
+            Style::Classic => {
+                if self.renderers.is_empty() {
+                    self.renderers.push(Renderer::system_default()?);
+                }
+                self.layer.setWantsExtendedDynamicRangeContent(false);
+                self.layer.setColorspace(None);
+                self.renderers[0].configure_layer(&self.layer);
+            }
+            Style::Remastered => {
+                if self.remastered.is_none() {
+                    self.remastered = Some(Remastered::system_default()?);
+                }
+                if let Some(r) = &self.remastered {
+                    r.configure_layer(&self.layer);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// How far above SDR white the display can currently show, as AppKit's
+    /// `maximumExtendedDynamicRangeColorComponentValue` reports it.
+    pub fn set_headroom(&mut self, headroom: f64) {
+        self.headroom = headroom;
     }
 
     /// The layer, for the hosting view to adopt.
@@ -71,6 +133,15 @@ impl Surface {
     /// Advances each show to `time` seconds, draws what it has into its
     /// strand, and presents the strands side by side, in order.
     pub fn render<'a>(&mut self, shows: impl IntoIterator<Item = &'a mut Show>, time: f64) {
+        if let (Style::Remastered, Some(r)) = (self.style, &mut self.remastered) {
+            r.render(
+                &self.layer,
+                shows.into_iter().collect(),
+                time,
+                self.headroom,
+            );
+            return;
+        }
         let size = self.layer.drawableSize();
         let (width, height) = (size.width as usize, size.height as usize);
         let shows: Vec<&mut Show> = shows.into_iter().collect();

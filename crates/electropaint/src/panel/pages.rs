@@ -266,9 +266,16 @@ impl PanelController {
         picker
     }
 
-    /// The buttons that act on the whole show, at the bottom right.
+    /// The drawing style at the bottom left, and the buttons that act on the
+    /// whole show at the bottom right.
     pub(super) fn button_bar(&self, mtm: MainThreadMarker) -> Retained<NSView> {
         let bar = stack(mtm, &[], NSUserInterfaceLayoutOrientation::Horizontal);
+        let style = NSSegmentedControl::new(mtm);
+        style.setSegmentCount(2);
+        for (i, text) in ["Classic", "Remastered"].iter().enumerate() {
+            style.setLabel_forSegment(&ns(text), i as isize);
+        }
+        bar.addView_inGravity(&self.add(&*style, Bind::Style), NSStackViewGravity::Leading);
         for (text, id) in [("Reset All", ids::RESET), ("Quit", ids::EXIT)] {
             bar.addView_inGravity(
                 &self.button(mtm, text, Bind::Press(id)),

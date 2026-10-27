@@ -23,19 +23,39 @@ This fills the main display; any key or click quits. Other options:
 
 | option | |
 |---|---|
+| `--style remastered` | draw the show as iridescent chrome in high dynamic range (below) |
 | `--all-displays` | one independent show per display |
 | `--windowed` | a normal window; input goes to electropaint (below) |
 | `--controls`, `-c` | the control panel, kept open (ep's `-c` ran no script; here the show keeps running) |
 | `--quad` | four mirrored strands (ep's `-q`) |
 | `--script FILE` | run an ep script instead of the built-in show (ep's `-a`) |
 | `--seed N` | fixed random seed (the original seeds from the clock) |
-| `--strands N`, `--strands auto` | N shows side by side, each with its own seed; `auto` fits as many as the screen is wide (three on a 32:9 display) |
+| `--strands N`, `--strands auto` | N shows side by side, each with its own seed; `auto` fits as many as the screen is wide (three on a 32:9 display). The default is 1 in the classic style and `auto` in remastered |
 | `--snapshot FILE.png --frames N --size WxH` | render offscreen and save the picture after about N 60 Hz retraces (default 600, at 1280x1024) |
 
 With `--windowed` or `--controls` the show takes input as ep did: keys are
 ep's shortcuts (listed under [Controls](#controls)) and Esc quits. A click on
 the show toggles ep's full-screen state, and leaving full screen brings up the
 control panel.
+
+### Remastered
+
+`--style remastered`, or the switch at the bottom of the control panel,
+keeps ep's show and draws it as a modern renderer would. The simulation is
+the same, so every tile goes where ep put it, and every control still works.
+
+- Each tile is a slab of polished metal with rounded edges, coloured by
+  its slot's colour under a thin iridescent film whose thickness follows
+  the hue. It reflects a studio of soft lights; ep's own two lights add
+  the sharp highlights.
+- Outlines are glowing inlays at the tile's edge, and fat lines make them
+  wider. A tile with an outline and no fill is just the glowing frame.
+- Ribbons are a swept metal band.
+- Smear leaves trails that fade over a second or two, and fade makes
+  them fade faster. Lighting and the z-buffer are always on.
+- It draws in floating point with 4x multisampling and bloom. On an XDR
+  or HDR display the highlights go brighter than SDR white.
+- Several strands share one space and one camera.
 
 ### Timing
 

@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 use ep_core::Options;
 use ep_metal::show::Show;
-use ep_metal::surface::Surface;
+use ep_metal::surface::{Style, Surface};
 use objc2::rc::{Allocated, Retained};
 use objc2::runtime::{AnyObject, Bool};
 use objc2::{ClassType, DefinedClass, MainThreadOnly, define_class, msg_send, sel};
@@ -108,7 +108,7 @@ define_class!(
 
 impl SaverView {
     fn setup(&self) {
-        match Surface::new() {
+        match Surface::new(Style::Classic) {
             Ok(surface) => self.start(surface),
             // The view stays black: a panic here would take down the host
             // (System Settings or the screen saver process).

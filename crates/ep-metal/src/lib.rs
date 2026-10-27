@@ -12,6 +12,7 @@
 //! ep's vertical field of view and takes the drawable's own aspect, so the
 //! picture fills the screen instead of being letterboxed.
 
+pub mod remastered;
 pub mod show;
 pub mod surface;
 
