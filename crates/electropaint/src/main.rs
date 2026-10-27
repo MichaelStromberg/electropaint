@@ -42,11 +42,21 @@ struct Snapshot {
 }
 
 fn parse_args() -> Options {
-    let mut opts = Options { windowed: false, all_displays: false, controls: false, panel_snapshot: None, quad: false, script: None, seed: None, snapshot: None };
+    let mut opts = Options {
+        windowed: false,
+        all_displays: false,
+        controls: false,
+        panel_snapshot: None,
+        quad: false,
+        script: None,
+        seed: None,
+        snapshot: None,
+    };
     let (mut frames, mut size) = (600, (1280, 1024));
     let mut args = std::env::args().skip(1);
     let number = |v: Option<String>, what: &str| -> u64 {
-        v.and_then(|s| s.parse().ok()).unwrap_or_else(|| usage_error(&format!("{what} needs a number")))
+        v.and_then(|s| s.parse().ok())
+            .unwrap_or_else(|| usage_error(&format!("{what} needs a number")))
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -56,15 +66,24 @@ fn parse_args() -> Options {
             "--panel-snapshot" => opts.panel_snapshot = args.next(),
             "-q" | "--quad" => opts.quad = true,
             "--script" => {
-                let path = args.next().unwrap_or_else(|| usage_error("--script needs a file"));
+                let path = args
+                    .next()
+                    .unwrap_or_else(|| usage_error("--script needs a file"));
                 let text = std::fs::read_to_string(&path)
                     .unwrap_or_else(|e| usage_error(&format!("{path}: {e}")));
                 opts.script = Some(ep_core::Script::parse(&text));
             }
             "--seed" => opts.seed = Some(number(args.next(), "--seed") as i64),
             "--snapshot" => {
-                let path = args.next().unwrap_or_else(|| usage_error("--snapshot needs a file"));
-                opts.snapshot = Some(Snapshot { path, frames: 0, width: 0, height: 0 });
+                let path = args
+                    .next()
+                    .unwrap_or_else(|| usage_error("--snapshot needs a file"));
+                opts.snapshot = Some(Snapshot {
+                    path,
+                    frames: 0,
+                    width: 0,
+                    height: 0,
+                });
             }
             "--frames" => frames = number(args.next(), "--frames"),
             "--size" => {
@@ -109,18 +128,29 @@ fn usage_error(msg: &str) -> ! {
 }
 
 /// Runs a show offscreen for `snap.frames` retraces and saves what is displayed.
-fn write_snapshot(snap: &Snapshot, opts: ep_core::Options) -> Result<(), Box<dyn std::error::Error>> {
+fn write_snapshot(
+    snap: &Snapshot,
+    opts: ep_core::Options,
+) -> Result<(), Box<dyn std::error::Error>> {
     let device = MTLCreateSystemDefaultDevice().ok_or("no Metal device")?;
     let mut renderer = Renderer::new(device);
     let mut sim = ep_core::Sim::new(opts);
     let (mut frames, mut retraces) = (Vec::new(), 0);
     while retraces < snap.frames && !sim.exited() {
         let frame = sim.tick();
-        retraces += frame.ops.iter().filter(|op| matches!(op, ep_core::frame::Op::Swap)).count().max(1) as u64;
+        retraces += frame
+            .ops
+            .iter()
+            .filter(|op| matches!(op, ep_core::frame::Op::Swap))
+            .count()
+            .max(1) as u64;
         frames.push(frame);
     }
     let bgra = renderer.render_offscreen(snap.width, snap.height, &frames);
-    let rgb: Vec<u8> = bgra.chunks_exact(4).flat_map(|p| [p[2], p[1], p[0]]).collect();
+    let rgb: Vec<u8> = bgra
+        .chunks_exact(4)
+        .flat_map(|p| [p[2], p[1], p[0]])
+        .collect();
     let file = std::io::BufWriter::new(std::fs::File::create(&snap.path)?);
     let mut encoder = png::Encoder::new(file, snap.width as u32, snap.height as u32);
     encoder.set_color(png::ColorType::Rgb);
@@ -187,7 +217,12 @@ define_class!(
 );
 
 impl ShowView {
-    fn new(mtm: MainThreadMarker, frame: NSRect, show: Rc<RefCell<Show>>, quit_on_input: bool) -> Retained<Self> {
+    fn new(
+        mtm: MainThreadMarker,
+        frame: NSRect,
+        show: Rc<RefCell<Show>>,
+        quit_on_input: bool,
+    ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(RefCell::new(None));
         let view: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
 
@@ -240,7 +275,10 @@ impl ShowView {
     /// Fullscreen: any key quits. Windowed: keys are ep's own shortcuts,
     /// and Esc (or ep's exit) quits.
     fn key(&self, event: &NSEvent) {
-        let chars = event.charactersIgnoringModifiers().map(|s| s.to_string()).unwrap_or_default();
+        let chars = event
+            .charactersIgnoringModifiers()
+            .map(|s| s.to_string())
+            .unwrap_or_default();
         let quit = {
             let mut state = self.ivars().borrow_mut();
             let Some(st) = state.as_mut() else { return };
@@ -295,7 +333,9 @@ fn show_options(opts: &Options, seed: i64) -> ep_core::Options {
 
 fn seed_base(opts: &Options) -> i64 {
     opts.seed.unwrap_or_else(|| {
-        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64)
     })
 }
 
@@ -350,7 +390,10 @@ fn main() {
     }
     let mtm = MainThreadMarker::new().expect("must run on the main thread");
     if let Some(path) = &opts.panel_snapshot {
-        let show = Rc::new(RefCell::new(Show::new(show_options(&opts, seed_base(&opts)))));
+        let show = Rc::new(RefCell::new(Show::new(show_options(
+            &opts,
+            seed_base(&opts),
+        ))));
         for i in 0..300 {
             let _ = show.borrow_mut().picture(f64::from(i) / 60.0);
         }
@@ -383,19 +426,33 @@ fn main() {
     } else {
         // The first screen is the main display (the one with the menu bar).
         let screens = NSScreen::screens(mtm);
-        let count = if opts.all_displays { screens.len() } else { screens.len().min(1) };
+        let count = if opts.all_displays {
+            screens.len()
+        } else {
+            screens.len().min(1)
+        };
         for (i, screen) in screens.iter().take(count).enumerate() {
             let rect = screen.frame();
             let show = new_show(base + i as i64);
             panel_show.get_or_insert_with(|| show.clone());
-            windows.push(open_window(mtm, rect, NSWindowStyleMask::Borderless, Some(&screen), show, true, !interactive));
+            windows.push(open_window(
+                mtm,
+                rect,
+                NSWindowStyleMask::Borderless,
+                Some(&screen),
+                show,
+                true,
+                !interactive,
+            ));
         }
         if !opts.controls {
             NSCursor::hide();
         }
     }
     let level = if opts.windowed { 0 } else { SHOW_LEVEL };
-    let _panel = interactive.then(|| panel::PanelController::new(mtm, panel_show.clone().unwrap(), opts.controls, level));
+    let _panel = interactive.then(|| {
+        panel::PanelController::new(mtm, panel_show.clone().unwrap(), opts.controls, level)
+    });
 
     #[allow(deprecated)]
     app.activateIgnoringOtherApps(true);

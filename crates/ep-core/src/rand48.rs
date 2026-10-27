@@ -44,10 +44,15 @@ mod tests {
     #[test]
     fn irix_fixtures() {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../re/fixtures");
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for e in entries.flatten() {
             let name = e.file_name().into_string().unwrap();
-            let Some(seed) = name.strip_prefix("d48_").and_then(|s| s.strip_suffix(".txt")) else {
+            let Some(seed) = name
+                .strip_prefix("d48_")
+                .and_then(|s| s.strip_suffix(".txt"))
+            else {
                 continue;
             };
             let mut r = Rand48::new(seed.parse().unwrap());

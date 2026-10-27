@@ -22,12 +22,12 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::{NSString, ns_string};
 use objc2_metal::{
-    MTLBlendFactor, MTLBlitCommandEncoder, MTLBuffer, MTLCommandBuffer, MTLCommandEncoder, MTLCommandQueue,
-    MTLCompareFunction, MTLDepthStencilDescriptor, MTLDepthStencilState, MTLDevice, MTLDrawable,
-    MTLLibrary, MTLLoadAction, MTLOrigin, MTLSize, MTLPixelFormat, MTLPrimitiveType, MTLRenderCommandEncoder,
-    MTLRenderPassDescriptor, MTLRenderPipelineDescriptor, MTLRenderPipelineState,
-    MTLResourceOptions, MTLStorageMode, MTLStoreAction, MTLTexture, MTLTextureDescriptor,
-    MTLTextureType, MTLTextureUsage,
+    MTLBlendFactor, MTLBlitCommandEncoder, MTLBuffer, MTLCommandBuffer, MTLCommandEncoder,
+    MTLCommandQueue, MTLCompareFunction, MTLDepthStencilDescriptor, MTLDepthStencilState,
+    MTLDevice, MTLDrawable, MTLLibrary, MTLLoadAction, MTLOrigin, MTLPixelFormat, MTLPrimitiveType,
+    MTLRenderCommandEncoder, MTLRenderPassDescriptor, MTLRenderPipelineDescriptor,
+    MTLRenderPipelineState, MTLResourceOptions, MTLSize, MTLStorageMode, MTLStoreAction,
+    MTLTexture, MTLTextureDescriptor, MTLTextureType, MTLTextureUsage,
 };
 use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
 
@@ -108,7 +108,12 @@ impl Renderer {
             targets: None,
             front: 0,
             draw_buffer: DrawBuffer::Back,
-            projection: Projection { fovy_tenths: 300, aspect: 1.25, near: 0.01, far: 1e6 },
+            projection: Projection {
+                fovy_tenths: 300,
+                aspect: 1.25,
+                near: 0.01,
+                far: 1e6,
+            },
         }
     }
 
@@ -144,7 +149,11 @@ impl Renderer {
     pub fn render_between(&mut self, layer: &CAMetalLayer, frame: &Frame) {
         let size = layer.drawableSize();
         let saved = std::mem::replace(&mut self.draw_buffer, DrawBuffer::Back);
-        let cb = self.encode(size.width as usize, size.height as usize, std::slice::from_ref(frame));
+        let cb = self.encode(
+            size.width as usize,
+            size.height as usize,
+            std::slice::from_ref(frame),
+        );
         self.draw_buffer = saved;
         let Some(cb) = cb else { return };
         self.present(&cb, layer, self.front ^ 1);
@@ -194,7 +203,11 @@ impl Renderer {
             return None;
         }
         let cb = self.queue.commandBuffer()?;
-        if self.targets.as_ref().is_none_or(|t| t.width != w || t.height != h) {
+        if self
+            .targets
+            .as_ref()
+            .is_none_or(|t| t.width != w || t.height != h)
+        {
             self.targets = Some(Targets::new(&self.device, w, h));
             // New buffers start black, as after IrisGL's gconfig.
             for index in 0..2 {
@@ -295,7 +308,11 @@ impl Renderer {
             let att = pass.colorAttachments().objectAtIndexedSubscript(0);
             att.setTexture(Some(&color.msaa));
             att.setResolveTexture(Some(&color.resolved));
-            att.setLoadAction(if color.fresh { MTLLoadAction::Clear } else { MTLLoadAction::Load });
+            att.setLoadAction(if color.fresh {
+                MTLLoadAction::Clear
+            } else {
+                MTLLoadAction::Load
+            });
             att.setStoreAction(MTLStoreAction::StoreAndMultisampleResolve);
             let depth = pass.depthAttachment();
             depth.setTexture(Some(&targets.depth));
@@ -309,7 +326,9 @@ impl Renderer {
         }
         color.fresh = false;
         targets.depth_fresh = false;
-        let Some(enc) = cb.renderCommandEncoderWithDescriptor(&pass) else { return };
+        let Some(enc) = cb.renderCommandEncoderWithDescriptor(&pass) else {
+            return;
+        };
 
         let mut u = Uniforms {
             proj: [[0.0; 4]; 4],
@@ -351,7 +370,11 @@ impl Renderer {
                         )
                     };
                 }
-                Op::Lines { state, width, verts } => {
+                Op::Lines {
+                    state,
+                    width,
+                    verts,
+                } => {
                     let Some(vbuf) = vbuf else { continue };
                     u.line_width = *width;
                     self.bind(&enc, &self.pipelines.line, state, vbuf, offset, &u);
@@ -403,9 +426,18 @@ impl Renderer {
     }
 
     /// Blits colour buffer `index` to the layer's next drawable and presents it.
-    fn present(&self, cb: &ProtocolObject<dyn MTLCommandBuffer>, layer: &CAMetalLayer, index: usize) {
-        let Some(drawable) = layer.nextDrawable() else { return };
-        let Some(blit) = cb.blitCommandEncoder() else { return };
+    fn present(
+        &self,
+        cb: &ProtocolObject<dyn MTLCommandBuffer>,
+        layer: &CAMetalLayer,
+        index: usize,
+    ) {
+        let Some(drawable) = layer.nextDrawable() else {
+            return;
+        };
+        let Some(blit) = cb.blitCommandEncoder() else {
+            return;
+        };
         let src = &self.targets.as_ref().unwrap().color[index].resolved;
         unsafe { blit.copyFromTexture_toTexture(src, &drawable.texture()) };
         blit.endEncoding();
@@ -511,14 +543,29 @@ impl Pipelines {
             let desc = MTLDepthStencilDescriptor::new();
             desc.setDepthCompareFunction(compare);
             desc.setDepthWriteEnabled(write);
-            device.newDepthStencilStateWithDescriptor(&desc).expect("depth state")
+            device
+                .newDepthStencilStateWithDescriptor(&desc)
+                .expect("depth state")
         };
-        let (tri, line, color) = (ns_string!("tri_vertex"), ns_string!("line_vertex"), ns_string!("color_fragment"));
-        let (fill_v, fill_f, zclear_f) =
-            (ns_string!("fill_vertex"), ns_string!("fill_fragment"), ns_string!("zclear_fragment"));
+        let (tri, line, color) = (
+            ns_string!("tri_vertex"),
+            ns_string!("line_vertex"),
+            ns_string!("color_fragment"),
+        );
+        let (fill_v, fill_f, zclear_f) = (
+            ns_string!("fill_vertex"),
+            ns_string!("fill_fragment"),
+            ns_string!("zclear_fragment"),
+        );
         Pipelines {
-            tri: [pipeline(tri, color, false, true), pipeline(tri, color, true, true)],
-            line: [pipeline(line, color, false, true), pipeline(line, color, true, true)],
+            tri: [
+                pipeline(tri, color, false, true),
+                pipeline(tri, color, true, true),
+            ],
+            line: [
+                pipeline(line, color, false, true),
+                pipeline(line, color, true, true),
+            ],
             fill: pipeline(fill_v, fill_f, false, true),
             zclear: pipeline(fill_v, zclear_f, false, false),
             depth_test: depth(MTLCompareFunction::LessEqual, true),

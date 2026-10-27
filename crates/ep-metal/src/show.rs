@@ -39,7 +39,12 @@ pub enum Picture {
 
 impl Show {
     pub fn new(opts: Options) -> Self {
-        Show { sim: Sim::new(opts), pending: None, shown: 0.0, start: None }
+        Show {
+            sim: Sim::new(opts),
+            pending: None,
+            shown: 0.0,
+            start: None,
+        }
     }
 
     /// What to show on a refresh at `time` seconds (any monotonic clock,
@@ -72,7 +77,9 @@ impl Show {
             return Picture::Ticks(due);
         }
         // The simulation is one tick ahead of the screen: blend into it.
-        let Some((_, retraces)) = &self.pending else { return Picture::Same };
+        let Some((_, retraces)) = &self.pending else {
+            return Picture::Same;
+        };
         let alpha = (now - self.shown) / f64::from(*retraces);
         if alpha < MIN_ALPHA {
             return Picture::Same;
@@ -84,7 +91,12 @@ impl Show {
     }
 
     /// Advances to `time` and renders onto `layer`.
-    pub fn render(&mut self, renderer: &mut Renderer, layer: &objc2_quartz_core::CAMetalLayer, time: f64) {
+    pub fn render(
+        &mut self,
+        renderer: &mut Renderer,
+        layer: &objc2_quartz_core::CAMetalLayer,
+        time: f64,
+    ) {
         match self.picture(time) {
             Picture::Ticks(frames) => renderer.render(layer, &frames),
             Picture::Between(frame) => renderer.render_between(layer, &frame),

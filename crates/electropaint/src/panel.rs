@@ -23,9 +23,9 @@ use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_se
 use objc2_app_kit::{
     NSApplication, NSBackingStoreType, NSBox, NSBoxType, NSButton, NSButtonType, NSColor,
     NSControl, NSControlSize, NSControlStateValueOff, NSControlStateValueOn, NSFont, NSGridCell,
-    NSGridView, NSPanel, NSSegmentedControl, NSSlider, NSSliderType, NSStackView, NSTabView,
-    NSLayoutConstraintOrientation, NSTabViewItem, NSTextField, NSUserInterfaceLayoutOrientation, NSView, NSWindowDelegate,
-    NSWindowStyleMask,
+    NSGridView, NSLayoutConstraintOrientation, NSPanel, NSSegmentedControl, NSSlider, NSSliderType,
+    NSStackView, NSTabView, NSTabViewItem, NSTextField, NSUserInterfaceLayoutOrientation, NSView,
+    NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSArray, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer,
@@ -116,7 +116,12 @@ impl PanelController {
     /// Builds the panel. It appears when ep's panels would (outside full
     /// screen), or straight away if `pinned`. `level` is the window level of
     /// the show, which the panel must float above.
-    pub fn new(mtm: MainThreadMarker, show: Rc<RefCell<Show>>, pinned: bool, level: isize) -> Retained<Self> {
+    pub fn new(
+        mtm: MainThreadMarker,
+        show: Rc<RefCell<Show>>,
+        pinned: bool,
+        level: isize,
+    ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(PanelIvars {
             show,
             controls: RefCell::new(Vec::new()),
@@ -142,7 +147,9 @@ impl PanelController {
         let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
             NSPanel::alloc(mtm),
             NSRect::new(NSPoint::new(0.0, 0.0), size),
-            NSWindowStyleMask::Titled | NSWindowStyleMask::Closable | NSWindowStyleMask::UtilityWindow,
+            NSWindowStyleMask::Titled
+                | NSWindowStyleMask::Closable
+                | NSWindowStyleMask::UtilityWindow,
             NSBackingStoreType::Buffered,
             false,
         );
@@ -182,7 +189,9 @@ impl PanelController {
             tabs.selectTabViewItemAtIndex(i);
             tabs.layoutSubtreeIfNeeded();
             let rect = tabs.bounds();
-            let rep = tabs.bitmapImageRepForCachingDisplayInRect(rect).ok_or("no bitmap")?;
+            let rep = tabs
+                .bitmapImageRepForCachingDisplayInRect(rect)
+                .ok_or("no bitmap")?;
             tabs.cacheDisplayInRect_toBitmapImageRep(rect, &rep);
             let png = unsafe {
                 rep.representationUsingType_properties(
@@ -221,8 +230,10 @@ impl PanelController {
         ];
         let mut toggle_rows: Vec<Vec<Retained<NSView>>> = Vec::new();
         for chunk in toggles.chunks(4) {
-            let mut row: Vec<Retained<NSView>> =
-                chunk.iter().map(|&(id, label)| self.checkbox(mtm, label, Bind::Press(id))).collect();
+            let mut row: Vec<Retained<NSView>> = chunk
+                .iter()
+                .map(|&(id, label)| self.checkbox(mtm, label, Bind::Press(id)))
+                .collect();
             while row.len() < 4 {
                 row.push(empty(mtm));
             }
@@ -273,7 +284,11 @@ impl PanelController {
 
     fn colours_tab(&self, mtm: MainThreadMarker) -> Retained<NSView> {
         let mut dials: Vec<Retained<NSView>> = Vec::new();
-        for (id, text) in [(ids::ALPHA_OUT, "outa"), (ids::ALPHA_BACK, "baka"), (ids::HUE_BACK_RATE, "outr")] {
+        for (id, text) in [
+            (ids::ALPHA_OUT, "outa"),
+            (ids::ALPHA_BACK, "baka"),
+            (ids::HUE_BACK_RATE, "outr"),
+        ] {
             let (min, max) = self.range(id);
             dials.push(label(mtm, text));
             dials.push(self.dial(mtm, min, max, Bind::Value(id)));
@@ -292,20 +307,33 @@ impl PanelController {
         // One column per colour channel.
         let channels = 0..5;
         let header = std::iter::once(empty(mtm))
-            .chain(channels.clone().map(|i| label(mtm, &format!("channel {}", i + 1))))
+            .chain(
+                channels
+                    .clone()
+                    .map(|i| label(mtm, &format!("channel {}", i + 1))),
+            )
             .collect();
         let row = |name: &str, make: &dyn Fn(usize) -> Retained<NSView>| -> Vec<Retained<NSView>> {
-            std::iter::once(label(mtm, name)).chain(channels.clone().map(make)).collect()
+            std::iter::once(label(mtm, name))
+                .chain(channels.clone().map(make))
+                .collect()
         };
         let mut rows: Vec<Vec<Retained<NSView>>> = vec![
             header,
-            row("active", &|i| self.button(mtm, "on", Bind::Press(ids::active_button(i)))),
+            row("active", &|i| {
+                self.button(mtm, "on", Bind::Press(ids::active_button(i)))
+            }),
             row("colour", &|i| self.swatch(mtm, i)),
-            row("alpha", &|i| self.dial(mtm, 0.0, 1.0, Bind::Value(ids::alpha_dial(i)))),
+            row("alpha", &|i| {
+                self.dial(mtm, 0.0, 1.0, Bind::Value(ids::alpha_dial(i)))
+            }),
         ];
         let mut hue_rows = Vec::new();
         let mut light_rows = Vec::new();
-        for (set, base) in [(&mut hue_rows, ids::hue_slider as fn(usize) -> u16), (&mut light_rows, ids::light_slider)] {
+        for (set, base) in [
+            (&mut hue_rows, ids::hue_slider as fn(usize) -> u16),
+            (&mut light_rows, ids::light_slider),
+        ] {
             for (name, offset) in [
                 ("value", None),
                 ("low", Some(ids::SLIDER_LOWER)),
@@ -330,21 +358,32 @@ impl PanelController {
                 )
             }));
         }
-        rows.push(row("dwell", &|i| self.slider(mtm, 0.0, 1.0, Bind::Value(ids::dwell(i)), 100.0)));
+        rows.push(row("dwell", &|i| {
+            self.slider(mtm, 0.0, 1.0, Bind::Value(ids::dwell(i)), 100.0)
+        }));
         let grid_view = grid(mtm, rows);
         *self.ivars().chan_rows.borrow_mut() = Some((grid_view.clone(), hue_rows, light_rows));
 
         let (min, max) = self.range(ids::CHAN_RATE);
         let chanrate = hstack(
             mtm,
-            &[label(mtm, "channel rate"), self.slider(mtm, min, max, Bind::Value(ids::CHAN_RATE), 300.0)],
+            &[
+                label(mtm, "channel rate"),
+                self.slider(mtm, min, max, Bind::Value(ids::CHAN_RATE), 300.0),
+            ],
         );
         let grid_view: Retained<NSView> = Retained::into_super(grid_view);
         vstack(mtm, &[dials, mode, grid_view, chanrate])
     }
 
     /// One ep slider: value, bounds, rate, bounce, R.
-    fn ep_slider_row(&self, mtm: MainThreadMarker, name: &str, id: u16, width: f64) -> Vec<Retained<NSView>> {
+    fn ep_slider_row(
+        &self,
+        mtm: MainThreadMarker,
+        name: &str,
+        id: u16,
+        width: f64,
+    ) -> Vec<Retained<NSView>> {
         let (min, max) = self.range(id);
         let (rmin, rmax) = self.range(id + ids::SLIDER_RATE);
         vec![
@@ -377,16 +416,29 @@ impl PanelController {
                 control.setAction(Some(sel!(changed:)));
             }
         }
-        controls.push(Control { view: view.clone(), bind, edited: Cell::new(None) });
+        controls.push(Control {
+            view: view.clone(),
+            bind,
+            edited: Cell::new(None),
+        });
     }
 
-    fn slider(&self, mtm: MainThreadMarker, min: f64, max: f64, bind: Bind, width: f64) -> Retained<NSView> {
+    fn slider(
+        &self,
+        mtm: MainThreadMarker,
+        min: f64,
+        max: f64,
+        bind: Bind,
+        width: f64,
+    ) -> Retained<NSView> {
         let s = NSSlider::new(mtm);
         s.setMinValue(min);
         s.setMaxValue(max);
         s.setContinuous(true);
         s.setControlSize(NSControlSize::Small);
-        s.widthAnchor().constraintEqualToConstant(width).setActive(true);
+        s.widthAnchor()
+            .constraintEqualToConstant(width)
+            .setActive(true);
         let view: Retained<NSView> = Retained::into_super(Retained::into_super(s));
         self.register(mtm, &view, bind);
         view
@@ -415,7 +467,13 @@ impl PanelController {
         if let Bind::Press(id) = bind {
             // Momentary buttons that light up (the channel "active" buttons)
             // show their state.
-            let lights = self.ivars().show.borrow().sim().actuator(id).is_some_and(|a| a.kind == Kind::Button);
+            let lights = self
+                .ivars()
+                .show
+                .borrow()
+                .sim()
+                .actuator(id)
+                .is_some_and(|a| a.kind == Kind::Button);
             if lights {
                 b.setButtonType(NSButtonType::PushOnPushOff);
             }
@@ -435,8 +493,12 @@ impl PanelController {
 
     fn readout(&self, mtm: MainThreadMarker, bind: Bind) -> Retained<NSView> {
         let t = NSTextField::labelWithString(&ns("0"), mtm);
-        t.setFont(Some(&NSFont::monospacedDigitSystemFontOfSize_weight(11.0, 0.0)));
-        t.widthAnchor().constraintEqualToConstant(64.0).setActive(true);
+        t.setFont(Some(&NSFont::monospacedDigitSystemFontOfSize_weight(
+            11.0, 0.0,
+        )));
+        t.widthAnchor()
+            .constraintEqualToConstant(64.0)
+            .setActive(true);
         let view: Retained<NSView> = Retained::into_super(Retained::into_super(t));
         self.register(mtm, &view, bind);
         view
@@ -447,8 +509,12 @@ impl PanelController {
         b.setBoxType(NSBoxType::Custom);
         b.setBorderWidth(0.0);
         b.setTitle(&ns(""));
-        b.widthAnchor().constraintEqualToConstant(100.0).setActive(true);
-        b.heightAnchor().constraintEqualToConstant(20.0).setActive(true);
+        b.widthAnchor()
+            .constraintEqualToConstant(100.0)
+            .setActive(true);
+        b.heightAnchor()
+            .constraintEqualToConstant(20.0)
+            .setActive(true);
         let view: Retained<NSView> = Retained::into_super(b);
         self.register(mtm, &view, Bind::Swatch(channel));
         view
@@ -485,9 +551,16 @@ impl PanelController {
                 // Clicking ep's hue palette switches to lightness, and the
                 // lightness palette switches back.
                 let lightness = !sim.actuator(ids::HUE_PALETTE).is_some_and(|a| a.visible);
-                let want = c.view.downcast_ref::<NSSegmentedControl>().map_or(0, |s| s.selectedSegment());
+                let want = c
+                    .view
+                    .downcast_ref::<NSSegmentedControl>()
+                    .map_or(0, |s| s.selectedSegment());
                 if (want == 1) != lightness {
-                    sim.press(if lightness { ids::LIGHT_PALETTE } else { ids::HUE_PALETTE });
+                    sim.press(if lightness {
+                        ids::LIGHT_PALETTE
+                    } else {
+                        ids::HUE_PALETTE
+                    });
                 }
             }
             Bind::Readout(_) | Bind::Swatch(_) => {}
@@ -506,7 +579,9 @@ impl PanelController {
             return;
         }
         let window_ref = self.ivars().window.borrow();
-        let Some(window) = window_ref.as_ref() else { return };
+        let Some(window) = window_ref.as_ref() else {
+            return;
+        };
         let want_visible = self.ivars().pinned || sim.panels_visible();
         if want_visible != window.isVisible() {
             if want_visible {
@@ -535,18 +610,25 @@ impl PanelController {
             }
             match c.bind {
                 Bind::Value(id) => {
-                    if let (Some(s), Some(v)) = (c.view.downcast_ref::<NSControl>(), sim.value(id)) {
+                    if let (Some(s), Some(v)) = (c.view.downcast_ref::<NSControl>(), sim.value(id))
+                    {
                         s.setDoubleValue(f64::from(v));
                     }
                 }
                 Bind::Press(id) => {
                     if let Some(b) = c.view.downcast_ref::<NSButton>() {
                         let on = sim.is_on(id);
-                        b.setState(if on { NSControlStateValueOn } else { NSControlStateValueOff });
+                        b.setState(if on {
+                            NSControlStateValueOn
+                        } else {
+                            NSControlStateValueOff
+                        });
                     }
                 }
                 Bind::Readout(id) => {
-                    if let (Some(t), Some(v)) = (c.view.downcast_ref::<NSTextField>(), sim.value(id)) {
+                    if let (Some(t), Some(v)) =
+                        (c.view.downcast_ref::<NSTextField>(), sim.value(id))
+                    {
                         t.setStringValue(&NSString::from_str(&format!("{v:.3}")));
                     }
                 }
@@ -605,11 +687,17 @@ fn empty(mtm: MainThreadMarker) -> Retained<NSView> {
 }
 
 fn slider_header(mtm: MainThreadMarker) -> Vec<Retained<NSView>> {
-    ["", "value", "", "low", "high", "rate", "bounce", ""].iter().map(|s| label(mtm, s)).collect()
+    ["", "value", "", "low", "high", "rate", "bounce", ""]
+        .iter()
+        .map(|s| label(mtm, s))
+        .collect()
 }
 
 fn grid(mtm: MainThreadMarker, rows: Vec<Vec<Retained<NSView>>>) -> Retained<NSGridView> {
-    let rows: Vec<Retained<NSArray<NSView>>> = rows.into_iter().map(|r| NSArray::from_retained_slice(&r)).collect();
+    let rows: Vec<Retained<NSArray<NSView>>> = rows
+        .into_iter()
+        .map(|r| NSArray::from_retained_slice(&r))
+        .collect();
     let g = NSGridView::gridViewWithViews(&NSArray::from_retained_slice(&rows), mtm);
     g.setRowSpacing(4.0);
     g.setColumnSpacing(8.0);
@@ -626,13 +714,22 @@ fn vstack(mtm: MainThreadMarker, views: &[Retained<NSView>]) -> Retained<NSView>
     let v = stack(mtm, views, NSUserInterfaceLayoutOrientation::Vertical);
     if let Some(s) = v.downcast_ref::<NSStackView>() {
         s.setSpacing(14.0);
-        s.setEdgeInsets(objc2_foundation::NSEdgeInsets { top: 12.0, left: 12.0, bottom: 12.0, right: 12.0 });
+        s.setEdgeInsets(objc2_foundation::NSEdgeInsets {
+            top: 12.0,
+            left: 12.0,
+            bottom: 12.0,
+            right: 12.0,
+        });
         s.setAlignment(objc2_app_kit::NSLayoutAttribute::Leading);
     }
     v
 }
 
-fn stack(mtm: MainThreadMarker, views: &[Retained<NSView>], o: NSUserInterfaceLayoutOrientation) -> Retained<NSView> {
+fn stack(
+    mtm: MainThreadMarker,
+    views: &[Retained<NSView>],
+    o: NSUserInterfaceLayoutOrientation,
+) -> Retained<NSView> {
     let s = NSStackView::stackViewWithViews(&NSArray::from_retained_slice(views), mtm);
     s.setOrientation(o);
     Retained::into_super(s)

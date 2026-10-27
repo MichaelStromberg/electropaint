@@ -53,14 +53,24 @@ pub enum Op {
     /// Reset the depth buffer to the far value.
     ZClear,
     /// Filled triangles (polygons and tmeshes already split).
-    Triangles { state: DrawState, verts: Vec<Vertex> },
+    Triangles {
+        state: DrawState,
+        verts: Vec<Vertex>,
+    },
     /// Line segments as vertex pairs; `width` is in original screen pixels
     /// (`linewidth`), relative to the original 1280x1024 display.
-    Lines { state: DrawState, width: f32, verts: Vec<Vertex> },
+    Lines {
+        state: DrawState,
+        width: f32,
+        verts: Vec<Vertex>,
+    },
     /// The stippled dissolve: fill the pixels selected by a 16x16 bit
     /// pattern (row-major, bit 15 = leftmost, rows from the bottom of the
     /// window), tiled from the window origin, with an RGBA colour.
-    StippleFill { pattern: [u16; 16], color: [f32; 4] },
+    StippleFill {
+        pattern: [u16; 16],
+        color: [f32; 4],
+    },
     /// `swapbuffers`: the back buffer becomes visible.
     Swap,
 }

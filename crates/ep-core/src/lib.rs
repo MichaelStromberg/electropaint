@@ -27,6 +27,6 @@ pub mod trace;
 
 pub use frame::Frame;
 pub use gl::{Arg, IrisCall, RgbColorIndex};
-pub use panel::{ids, Actuator, Callback, Kind, Panel};
+pub use panel::{Actuator, Callback, Kind, Panel, ids};
 pub use script::Script;
 pub use sim::{Options, Sim, SwapCause};

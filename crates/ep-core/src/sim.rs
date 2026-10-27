@@ -641,7 +641,11 @@ impl Sim {
         if !self.controls.act(ids::SMEAR).not_off() {
             self.gl.c4f(self.bkg_rgba);
             self.gl.clear();
-            self.between = Some(Between { speed, wheel: wheel0, bkg_rgba: bkg0 });
+            self.between = Some(Between {
+                speed,
+                wheel: wheel0,
+                bkg_rgba: bkg0,
+            });
         } else {
             if self.controls.act(ids::FADE).on() {
                 self.fade_background(1);

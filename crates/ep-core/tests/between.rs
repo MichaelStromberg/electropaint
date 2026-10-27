@@ -41,8 +41,14 @@ fn ends_of_a_tick_match_the_real_pictures() {
         let (sim, prev, last) = run(ticks);
         let start = sim.frame_between(0.0).expect("default show repaints");
         let end = sim.frame_between(1.0).expect("default show repaints");
-        assert!(max_diff(&vertices(&start), &vertices(&prev)) < 1e-4, "alpha 0 at tick {ticks}");
-        assert!(max_diff(&vertices(&end), &vertices(&last)) < 1e-4, "alpha 1 at tick {ticks}");
+        assert!(
+            max_diff(&vertices(&start), &vertices(&prev)) < 1e-4,
+            "alpha 0 at tick {ticks}"
+        );
+        assert!(
+            max_diff(&vertices(&end), &vertices(&last)) < 1e-4,
+            "alpha 1 at tick {ticks}"
+        );
         assert!(!start.ops.contains(&Op::Swap));
     }
 }

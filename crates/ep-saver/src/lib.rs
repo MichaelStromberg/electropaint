@@ -15,11 +15,11 @@ use objc2::rc::{Allocated, Retained};
 use objc2::runtime::{AnyObject, Bool};
 use objc2::{ClassType, DefinedClass, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::NSView;
-use objc2_metal::MTLCreateSystemDefaultDevice;
 use objc2_foundation::{
-    NSDefaultRunLoopMode, NSDistributedNotificationCenter, NSNotification, NSRect, NSRunLoop, NSSize,
-    ns_string,
+    NSDefaultRunLoopMode, NSDistributedNotificationCenter, NSNotification, NSRect, NSRunLoop,
+    NSSize, ns_string,
 };
+use objc2_metal::MTLCreateSystemDefaultDevice;
 use objc2_quartz_core::{CADisplayLink, CAMetalLayer};
 use objc2_screen_saver::ScreenSaverView;
 
@@ -84,12 +84,19 @@ impl SaverView {
         self.setLayer(Some(&layer));
         self.setWantsLayer(true);
 
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64);
         let seed = now + INSTANCES.fetch_add(1, Ordering::Relaxed);
         let link = unsafe { self.displayLinkWithTarget_selector(self as &AnyObject, sel!(step:)) };
         unsafe { link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSDefaultRunLoopMode) };
         let show = Show::new(Options::new(seed).saver());
-        *self.ivars().borrow_mut() = Some(SaverState { show, renderer, layer, _link: link });
+        *self.ivars().borrow_mut() = Some(SaverState {
+            show,
+            renderer,
+            layer,
+            _link: link,
+        });
 
         unsafe {
             NSDistributedNotificationCenter::defaultCenter().addObserver_selector_name_object(
