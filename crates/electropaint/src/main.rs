@@ -87,7 +87,8 @@ fn parse_args() -> Options {
                 size = v
                     .split_once('x')
                     .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
-                    .unwrap_or_else(|| usage_error("--size takes WIDTHxHEIGHT"));
+                    .filter(|&(w, h)| w > 0 && h > 0)
+                    .unwrap_or_else(|| usage_error("--size takes WIDTHxHEIGHT, both above 0"));
             }
             "-h" | "--help" => {
                 println!("{USAGE}");

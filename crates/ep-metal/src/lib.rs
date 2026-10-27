@@ -205,7 +205,8 @@ impl Renderer {
     ///
     /// # Panics
     ///
-    /// If `width` or `height` is 0.
+    /// If `width` or `height` is 0, or Metal can't allocate a target that
+    /// size.
     pub fn render_offscreen(&mut self, width: usize, height: usize, frames: &[Frame]) -> Vec<u8> {
         let cb = self.encode(width, height, frames).expect("encode");
         let row = width * 4;
@@ -258,7 +259,9 @@ impl Renderer {
             .as_ref()
             .is_none_or(|t| t.width != w || t.height != h)
         {
-            self.targets = Some(Targets::new(&self.device, w, h));
+            // Without targets (Metal refused the memory) the frames are
+            // dropped, as for a zero-sized drawable.
+            self.targets = Some(Targets::new(&self.device, w, h)?);
             // New buffers start black, as after IrisGL's gconfig.
             for index in 0..2 {
                 self.encode_pass(&cb, None, index, &[]);
@@ -530,19 +533,22 @@ fn projection_matrix(p: &Projection, aspect: f32) -> [[f32; 4]; 4] {
 }
 
 impl Targets {
-    fn new(device: &Device, width: usize, height: usize) -> Self {
-        let buffer = || ColorBuffer {
-            msaa: texture(device, COLOR_FORMAT, width, height, SAMPLES),
-            resolved: texture(device, COLOR_FORMAT, width, height, 1),
-            fresh: true,
+    /// `None` if Metal can't allocate them.
+    fn new(device: &Device, width: usize, height: usize) -> Option<Self> {
+        let buffer = || {
+            Some(ColorBuffer {
+                msaa: texture(device, COLOR_FORMAT, width, height, SAMPLES)?,
+                resolved: texture(device, COLOR_FORMAT, width, height, 1)?,
+                fresh: true,
+            })
         };
-        Targets {
+        Some(Targets {
             width,
             height,
-            color: [buffer(), buffer()],
-            depth: texture(device, DEPTH_FORMAT, width, height, SAMPLES),
+            color: [buffer()?, buffer()?],
+            depth: texture(device, DEPTH_FORMAT, width, height, SAMPLES)?,
             depth_fresh: true,
-        }
+        })
     }
 }
 
@@ -552,7 +558,7 @@ fn texture(
     width: usize,
     height: usize,
     samples: usize,
-) -> Retained<Texture> {
+) -> Option<Retained<Texture>> {
     // SAFETY: a plain descriptor; `encode` rules out zero sizes.
     let desc = unsafe {
         MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(
@@ -566,7 +572,7 @@ fn texture(
     }
     desc.setStorageMode(MTLStorageMode::Private);
     desc.setUsage(MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead);
-    device.newTextureWithDescriptor(&desc).expect("texture")
+    device.newTextureWithDescriptor(&desc)
 }
 
 impl Pipelines {
