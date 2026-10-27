@@ -12,6 +12,7 @@
 //! framebuffer fetch and the multisampled targets are memoryless.
 
 use ep_core::Frame;
+use ep_core::frame::Projection;
 use ep_core::scene::{Scene, Shape, Tile};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
@@ -34,7 +35,10 @@ use mesh::{RibbonVertex, ribbon_strip, slab};
 use crate::gpu::{check_size, fits, read_back, set_bytes, texture, upload};
 use crate::show::{Picture, Show};
 use crate::surface::main_strand;
-use crate::{Buffer, CommandBuffer, DepthState, Device, Encoder, Pipeline, RendererError, Texture};
+use crate::{
+    Buffer, CommandBuffer, DepthState, Device, Encoder, Pipeline, RendererError, Texture,
+    projection_matrix,
+};
 
 const SAMPLES: usize = 4;
 const HDR_FORMAT: MTLPixelFormat = MTLPixelFormat::RGBA16Float;
@@ -347,24 +351,7 @@ impl Remastered {
         let trail = !smearing.is_empty();
         if trail {
             self.encode_strand(cb, t, &view, smearing, buffers);
-            let keep = if gathered.fade { FADE_KEEP } else { SMEAR_KEEP };
-            let post = Post {
-                decay: if t.trail_fresh {
-                    0.0
-                } else {
-                    keep.powi(steps as i32)
-                },
-                ..Post::default()
-            };
-            let load = if t.trail_fresh {
-                MTLLoadAction::Clear
-            } else {
-                MTLLoadAction::Load
-            };
-            if let Some(enc) = encoder(cb, &t.trail, load) {
-                fullscreen(&enc, &self.pipelines.accumulate, &[&t.layer], &post);
-                enc.endEncoding();
-            }
+            self.encode_trail(cb, t, steps, gathered.fade);
         }
         self.encode_strand(cb, t, &view, still, buffers);
         if trail && let Some(enc) = encoder(cb, &t.layer, MTLLoadAction::Load) {
@@ -373,6 +360,29 @@ impl Remastered {
         }
         if let Some(t) = &mut self.targets {
             t.trail_fresh = !trail;
+        }
+    }
+
+    /// Lays the layer over what `steps` steps (fading, or just smearing)
+    /// leave of the trail.
+    fn encode_trail(&self, cb: &CommandBuffer, t: &Targets, steps: usize, fade: bool) {
+        let keep = if fade { FADE_KEEP } else { SMEAR_KEEP };
+        let post = Post {
+            decay: if t.trail_fresh {
+                0.0
+            } else {
+                keep.powi(steps as i32)
+            },
+            ..Post::default()
+        };
+        let load = if t.trail_fresh {
+            MTLLoadAction::Clear
+        } else {
+            MTLLoadAction::Load
+        };
+        if let Some(enc) = encoder(cb, &t.trail, load) {
+            fullscreen(&enc, &self.pipelines.accumulate, &[&t.layer], &post);
+            enc.endEncoding();
         }
     }
 
@@ -648,19 +658,17 @@ fn linear(c: [f32; 4]) -> [f32; 4] {
     [l(c[0]), l(c[1]), l(c[2]), c[3]]
 }
 
-/// ep's projection (30 degree vertical field) at the view's aspect, with
-/// Metal's [0, 1] depth, column-major.
+/// ep's projection (30 degree vertical field) at the view's aspect.
 fn perspective(aspect: f32) -> [[f32; 4]; 4] {
-    let f = 1.0 / HALF_FOVY.tan();
     // ep's camera is 10 units from the strand, which can reach far beyond
     // that either way.
-    let (n, far) = (0.05, 1e4);
-    [
-        [f / aspect, 0.0, 0.0, 0.0],
-        [0.0, f, 0.0, 0.0],
-        [0.0, 0.0, far / (n - far), -1.0],
-        [0.0, 0.0, n * far / (n - far), 0.0],
-    ]
+    let ep = Projection {
+        fovy_tenths: 300,
+        aspect,
+        near: 0.05,
+        far: 1e4,
+    };
+    projection_matrix(&ep, aspect)
 }
 
 impl Targets {
